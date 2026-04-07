@@ -1,0 +1,8 @@
+click>=8
+rich>=13
+PyYAML>=6
+prompt_toolkit>=3
+
+[dev]
+pytest>=7
+pytest-mock>=3

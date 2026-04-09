@@ -1,2 +1,0 @@
-[console_scripts]
-prflow = prflow.cli:main

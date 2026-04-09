@@ -12,18 +12,30 @@ A CLI tool that automates the full PR preparation flow: branch safety check, reb
 
 ## Installation
 
-```bash
-./install.sh
-```
+The primary install path is a single script that downloads the latest GitHub Release and installs it with `pipx`.
 
-Requires [`pipx`](https://pipx.pypa.io/). If you don't have it:
+### Step 1: Install prerequisites
+
+- Python 3.9 or newer
+- [`pipx`](https://pipx.pypa.io/)
+- `curl`
+- [`gh`](https://cli.github.com/) authenticated with GitHub
+- [`claude`](https://claude.ai/code) CLI if you want the default LLM backend
+
+Install `pipx` if you do not already have it:
 
 ```bash
 brew install pipx   # macOS
-pip install pipx    # other
+pip install pipx    # other platforms
 ```
 
-The script installs `prflow` globally via pipx, then walks you through setting up `~/.prflow.yaml`:
+### Step 2: Run the installer
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jopika/PRFlow/main/install.sh | bash
+```
+
+The installer downloads the latest release wheel, installs `prflow` with `pipx`, and then walks you through setting up `~/.prflow.yaml`:
 
 ```
 Setting up ~/.prflow.yaml
@@ -36,13 +48,31 @@ Create PRs as drafts by default? [Y/n]:
 Protected branches (comma-separated) [main,master]:
 ```
 
-Re-run `./install.sh` at any time to reconfigure. To uninstall:
+### Step 3: Verify the install
+
+```bash
+prflow --version
+```
+
+Re-run the same installer command at any time to upgrade or reconfigure. To uninstall:
 
 ```bash
 pipx uninstall prflow
 ```
 
-For development (editable install):
+### Alternative: install from a local checkout
+
+If you are developing on `prflow` itself, clone the repo and run the same installer locally:
+
+```bash
+git clone git@github.com:jopika/PRFlow.git
+cd PRFlow
+./install.sh
+```
+
+### Development install
+
+For local development with an editable install:
 
 ```bash
 pip install -e ".[dev]"
@@ -65,6 +95,7 @@ Run from any branch in any GitHub-backed git repo.
 | `--draft / --no-draft` | Override draft setting from config |
 | `--base BRANCH` | Override base branch |
 | `--dry-run` | Print what would happen without executing |
+| `--update` | Check for a newer `prflow` release and optionally upgrade |
 | `--yes`, `-y` | Non-interactive: accept all defaults, skip prompts |
 | `--full-diff` | Use full diff with multi-agent analysis (slower, more thorough) |
 | `--seed TEXT`, `-s TEXT` | Extra context to seed the LLM (intent, background, notes) |
@@ -195,6 +226,23 @@ llm:
   timeout: 180
 ```
 
+### Update checks
+
+`prflow` can check GitHub Releases for a newer version of itself.
+
+- Automatic checks are throttled to once every 24 hours by default.
+- If a newer version is found, `prflow` prompts once interactively.
+- If you decline, later runs show a small startup banner instead of prompting again.
+- Run `prflow --update` at any time to check manually and optionally upgrade.
+- The upgrade command is `pipx upgrade prflow`.
+
+To disable automatic checks:
+
+```yaml
+updates:
+  enabled: false
+```
+
 ### All config keys
 
 | Key | Default | Description |
@@ -203,6 +251,9 @@ llm:
 | `protected_branches` | `[main, master]` | Branches you cannot open a PR from. |
 | `pre_commit` | `true` | Run pre-commit hooks on changed files before pushing. |
 | `draft` | `true` | Create PRs as drafts by default. |
+| `updates.enabled` | `true` | Enable automatic update checks and startup banners. |
+| `updates.check_interval_hours` | `24` | How often `prflow` checks GitHub Releases for a newer version. |
+| `updates.github_repo` | `jopika/PRFlow` | GitHub repo used as the release source for update checks. |
 | `llm.backend` | `claude` | LLM backend: `claude`, `openai` (stub), or `custom`. |
 | `llm.model` | `null` | Override the Claude model. Uses the CLI default if not set. |
 | `llm.effort` | `medium` | Claude thinking effort: `low`, `medium`, `high`, or `max`. |
@@ -281,9 +332,10 @@ The CLI version shown by `prflow --version` reads from installed package metadat
 When a release is created, GitHub Actions builds and attaches:
 
 - `prflow-<version>.tar.gz`
+- `prflow-<version>.zip`
 - `prflow-<version>-py3-none-any.whl`
 
-The workflow validates the built metadata with `twine check` before uploading the assets.
+The workflow validates the built Python package metadata with `twine check` before uploading the assets.
 
 ### Day-to-day maintainer flow
 

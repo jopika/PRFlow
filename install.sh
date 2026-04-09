@@ -156,6 +156,15 @@ else
   draft="false"
 fi
 
+echo ""
+
+# Update checks
+if prompt_yn "Enable automatic update checks?" "y"; then
+  updates_enabled="true"
+else
+  updates_enabled="false"
+fi
+
 # Protected branches
 protected_raw=$(prompt "Protected branches (comma-separated)" "main,master")
 IFS=',' read -ra protected_arr <<< "$protected_raw"
@@ -178,6 +187,12 @@ done
 
   echo ""
   echo "draft: $draft"
+
+  echo ""
+  echo "updates:"
+  echo "  enabled: $updates_enabled"
+  echo "  check_interval_hours: 24"
+  echo "  github_repo: $REPO_SLUG"
 
   echo ""
   echo "protected_branches:"

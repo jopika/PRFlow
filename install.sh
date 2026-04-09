@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$HOME/.prflow.yaml"
+REPO_SLUG="${PRFLOW_GITHUB_REPO:-jopika/PRFlow}"
+INSTALL_TARGET=""
+TMP_DIR=""
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,22 +41,78 @@ prompt_yn() {
   [[ "$answer" =~ ^[Yy] ]]
 }
 
+cleanup() {
+  if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
+    rm -rf "$TMP_DIR"
+  fi
+}
+
+require_command() {
+  local cmd="$1"
+  local help_text="$2"
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "$help_text"
+    exit 1
+  fi
+}
+
+detect_install_target() {
+  if [[ -f "$SCRIPT_DIR/pyproject.toml" ]]; then
+    INSTALL_TARGET="$SCRIPT_DIR"
+    return
+  fi
+
+  require_command "curl" "curl not found. Install curl first, then rerun this installer."
+  require_command "python3" "python3 not found. Install Python 3.9 or newer first, then rerun this installer."
+
+  TMP_DIR="$(mktemp -d)"
+  local api_url="https://api.github.com/repos/${REPO_SLUG}/releases/latest"
+  local release_json="$TMP_DIR/release.json"
+  local wheel_url
+  local wheel_name
+
+  echo "Fetching latest release metadata from GitHub..."
+  curl -fsSL -H "Accept: application/vnd.github+json" "$api_url" -o "$release_json"
+
+  wheel_url="$(
+    python3 - "$release_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    release = json.load(fh)
+
+for asset in release.get("assets", []):
+    url = asset.get("browser_download_url", "")
+    if url.endswith(".whl"):
+        print(url)
+        break
+else:
+    raise SystemExit("No wheel asset found in the latest GitHub Release.")
+PY
+  )"
+
+  wheel_name="${wheel_url##*/}"
+  INSTALL_TARGET="$TMP_DIR/$wheel_name"
+
+  echo "Downloading $wheel_name..."
+  curl -fsSL "$wheel_url" -o "$INSTALL_TARGET"
+}
+
 # ── install ───────────────────────────────────────────────────────────────────
 
-if ! command -v pipx &>/dev/null; then
-  echo "pipx not found. Install it first:"
-  echo "  brew install pipx    # macOS"
-  echo "  pip install pipx     # other"
-  exit 1
+trap cleanup EXIT
+
+require_command "pipx" $'pipx not found. Install it first:\n  brew install pipx    # macOS\n  pip install pipx     # other'
+detect_install_target()
+
+if [[ "$INSTALL_TARGET" == "$SCRIPT_DIR" ]]; then
+  echo "Installing prflow from local checkout..."
+else
+  echo "Installing prflow from the latest GitHub Release..."
 fi
 
-if pipx list --short 2>/dev/null | grep -q "^prflow "; then
-  echo "Reinstalling prflow..."
-  pipx reinstall prflow
-else
-  echo "Installing prflow..."
-  pipx install "$SCRIPT_DIR"
-fi
+pipx install --force "$INSTALL_TARGET"
 
 echo ""
 echo "$(prflow --version) installed."

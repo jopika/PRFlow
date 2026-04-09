@@ -58,6 +58,13 @@ jobs:
       - name: Validate package metadata
         run: python -m twine check dist/*
 
+      - name: Build source zip
+        env:
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          git archive --format=zip --prefix="prflow-${VERSION}/" --output="dist/prflow-${VERSION}.zip" HEAD
+
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

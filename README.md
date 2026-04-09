@@ -235,7 +235,7 @@ llm:
 - If a newer version is found, `prflow` prompts once interactively.
 - If you decline, later runs show a small startup banner instead of prompting again.
 - Run `prflow --update` at any time to check manually and optionally upgrade.
-- The upgrade command is `pipx upgrade prflow`.
+- The updater reinstalls `prflow` from the latest GitHub Release wheel so the upgrade source matches the release check.
 
 To disable automatic checks:
 

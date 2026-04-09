@@ -27,6 +27,29 @@ class TestVersionHelpers:
         assert update.is_newer_version("release-latest", "0.2.1") is False
 
 
+class TestReleaseLookup:
+    def test_get_latest_release_info_extracts_wheel_url(self, mocker):
+        payload = {
+            "tag_name": "v0.3.2",
+            "html_url": "https://example.com/release",
+            "assets": [
+                {"browser_download_url": "https://example.com/prflow-0.3.2-py3-none-any.whl"},
+            ],
+        }
+        response = mocker.MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        mocker.patch("prflow.update.request.urlopen", return_value=response)
+        mocker.patch("prflow.update.json.load", return_value=payload)
+
+        info = update.get_latest_release_info("jopika/PRFlow")
+
+        assert info.latest_version == "0.3.2"
+        assert info.release_url == "https://example.com/release"
+        assert info.wheel_url == "https://example.com/prflow-0.3.2-py3-none-any.whl"
+        assert info.error is None
+
+
 class TestCheckTiming:
     def test_check_due_with_no_timestamp(self):
         assert update.is_check_due({}, 24) is True
@@ -247,6 +270,49 @@ class TestManualUpdate:
 
         update.handle_manual_update({"updates": {"enabled": True}})
 
-        run_upgrade.assert_called_once()
+        run_upgrade.assert_called_once_with({"updates": {"enabled": True}})
         assert "last_prompted_version" not in state
         save_state.assert_called()
+
+
+class TestRunUpgrade:
+    def test_run_upgrade_installs_latest_release_wheel(self, mocker):
+        mocker.patch("prflow.update.shutil.which", return_value="/usr/bin/pipx")
+        mocker.patch(
+            "prflow.update.get_latest_release_info",
+            return_value=update.ReleaseInfo(
+                latest_version="0.3.2",
+                wheel_url="https://example.com/prflow-0.3.2-py3-none-any.whl",
+            ),
+        )
+        subprocess_run = mocker.patch("prflow.update.subprocess.run")
+        subprocess_run.return_value.returncode = 0
+        mock_console = mocker.patch("prflow.update.console")
+
+        result = update.run_upgrade({"updates": {"github_repo": "jopika/PRFlow"}})
+
+        assert result is True
+        subprocess_run.assert_called_once()
+        args, kwargs = subprocess_run.call_args
+        assert args[0] == [
+            "pipx",
+            "install",
+            "--force",
+            "https://example.com/prflow-0.3.2-py3-none-any.whl",
+        ]
+        assert "0.3.2" in str(mock_console.print.call_args_list[-1])
+
+    def test_run_upgrade_fails_when_release_has_no_wheel(self, mocker):
+        mocker.patch("prflow.update.shutil.which", return_value="/usr/bin/pipx")
+        mocker.patch(
+            "prflow.update.get_latest_release_info",
+            return_value=update.ReleaseInfo(latest_version="0.3.2"),
+        )
+        mocker.patch("prflow.update.subprocess.run")
+        mock_console = mocker.patch("prflow.update.console")
+
+        result = update.run_upgrade({"updates": {"github_repo": "jopika/PRFlow"}})
+
+        assert result is False
+        rendered = [str(call) for call in mock_console.print.call_args_list]
+        assert any("does not include a wheel asset" in line for line in rendered)

@@ -31,6 +31,14 @@ class UpdateStatus:
     error: str | None = None
 
 
+@dataclass
+class ReleaseInfo:
+    latest_version: str | None = None
+    release_url: str | None = None
+    wheel_url: str | None = None
+    error: str | None = None
+
+
 def state_path() -> Path:
     """Location for transient per-user update state."""
     return Path.home() / STATE_FILE
@@ -94,8 +102,8 @@ def is_newer_version(candidate: str | None, current: str | None) -> bool:
     return candidate_key > current_key
 
 
-def get_latest_release(repo: str, timeout: float = 2.0) -> tuple[str | None, str | None, str | None]:
-    """Fetch the latest release version and URL from GitHub Releases."""
+def get_latest_release_info(repo: str, timeout: float = 2.0) -> ReleaseInfo:
+    """Fetch the latest release metadata from GitHub Releases."""
     url = f"https://api.github.com/repos/{repo}/releases/latest"
     headers = {
         "Accept": "application/vnd.github+json",
@@ -106,22 +114,44 @@ def get_latest_release(repo: str, timeout: float = 2.0) -> tuple[str | None, str
         with request.urlopen(req, timeout=timeout) as response:
             payload = json.load(response)
     except error.HTTPError as exc:
-        return None, None, f"HTTP {exc.code}"
+        return ReleaseInfo(error=f"HTTP {exc.code}")
     except error.URLError as exc:
         reason = getattr(exc, "reason", None)
-        return None, None, str(reason) if reason else "network error"
+        return ReleaseInfo(error=str(reason) if reason else "network error")
     except TimeoutError:
-        return None, None, "timed out"
+        return ReleaseInfo(error="timed out")
     except OSError as exc:
-        return None, None, str(exc)
+        return ReleaseInfo(error=str(exc))
     except json.JSONDecodeError:
-        return None, None, "invalid response"
+        return ReleaseInfo(error="invalid response")
 
     latest_version = normalize_version(payload.get("tag_name") or payload.get("name"))
     release_url = payload.get("html_url")
     if not isinstance(release_url, str):
         release_url = None
-    return latest_version, release_url, None
+
+    wheel_url = None
+    assets = payload.get("assets")
+    if isinstance(assets, list):
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            candidate = asset.get("browser_download_url")
+            if isinstance(candidate, str) and candidate.endswith(".whl"):
+                wheel_url = candidate
+                break
+
+    return ReleaseInfo(
+        latest_version=latest_version,
+        release_url=release_url,
+        wheel_url=wheel_url,
+    )
+
+
+def get_latest_release(repo: str, timeout: float = 2.0) -> tuple[str | None, str | None, str | None]:
+    """Fetch the latest release version and URL from GitHub Releases."""
+    info = get_latest_release_info(repo, timeout=timeout)
+    return info.latest_version, info.release_url, info.error
 
 
 def clear_seen_update(state: dict) -> dict:
@@ -229,23 +259,42 @@ def show_update_banner(status: UpdateStatus) -> None:
     console.print(_banner_text(status))
 
 
-def run_upgrade() -> bool:
-    """Run the supported upgrade command."""
+def run_upgrade(config: dict) -> bool:
+    """Install the latest GitHub Release wheel with pipx."""
     if shutil.which("pipx") is None:
         console.print(
             "[yellow]pipx is not installed or not on PATH.[/yellow] "
-            "Install pipx first, then run [bold]pipx upgrade prflow[/bold]."
+            "Install pipx first, then rerun [bold]prflow --update[/bold]."
         )
         return False
 
-    cwd = Path.home() # Override cwd to home to minimize name collision for pipx
+    repo = _updates_config(config).get("github_repo", "jopika/PRFlow")
+    release_info = get_latest_release_info(repo)
+    if release_info.error:
+        console.print(
+            "[bold red]Update failed.[/bold red] "
+            f"Unable to fetch the latest release metadata: {release_info.error}"
+        )
+        return False
+    if not release_info.wheel_url:
+        console.print(
+            "[bold red]Update failed.[/bold red] "
+            "Latest GitHub Release does not include a wheel asset."
+        )
+        return False
 
-    result = subprocess.run(["pipx", "upgrade", "prflow"], cwd=str(cwd))
+    cwd = Path.home()  # Override cwd to home to minimize name collision for pipx
+
+    result = subprocess.run(["pipx", "install", "--force", release_info.wheel_url], cwd=str(cwd))
     if result.returncode == 0:
-        console.print("[green]prflow was updated successfully.[/green]")
+        version_suffix = f" to {release_info.latest_version}" if release_info.latest_version else ""
+        console.print(f"[green]prflow was updated successfully{version_suffix}.[/green]")
         return True
 
-    console.print("[bold red]Update failed.[/bold red] Try [bold]pipx upgrade prflow[/bold] manually.")
+    console.print(
+        "[bold red]Update failed.[/bold red] "
+        "Try rerunning [bold]prflow --update[/bold] or the install script manually."
+    )
     return False
 
 
@@ -269,8 +318,8 @@ def handle_manual_update(config: dict) -> None:
     state["last_prompted_version"] = status.latest_version
     save_state(state)
 
-    if click.confirm("Upgrade now with pipx?", default=False):
-        if run_upgrade():
+    if click.confirm("Upgrade now from Github Release?", default=False):
+        if run_upgrade(config):
             clear_seen_update(state)
             save_state(state)
 
@@ -305,7 +354,7 @@ def handle_startup_update(config: dict, interactive: bool) -> None:
         save_state(state)
 
         if click.confirm("Upgrade now with pipx?", default=False):
-            if run_upgrade():
+            if run_upgrade(config):
                 clear_seen_update(state)
                 save_state(state)
             return

@@ -5,15 +5,18 @@ import pytest
 from prflow.git import (
     GitError,
     _parse_diff_into_files,
+    commit,
     current_branch,
     get_base_branch,
     get_changed_files,
     get_commits_since_base,
+    get_diff_for_staged_files,
     get_dirty_files,
     get_diff_stat,
     fetch_and_rebase,
     is_protected_branch,
     push_branch,
+    stage_files,
 )
 from tests.conftest import completed as _completed
 
@@ -131,6 +134,69 @@ class TestGetChangedFiles:
         mocker.patch("prflow.git.subprocess.run",
                      return_value=_completed("foo.py\n\nbar.py\n"))
         assert get_changed_files("main") == ["foo.py", "bar.py"]
+
+
+class TestStageFiles:
+    def test_calls_git_add(self, mocker):
+        mock_run = mocker.patch("prflow.git.subprocess.run", return_value=_completed())
+        stage_files(["a.py", "b.py"])
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["git", "add", "--", "a.py", "b.py"]
+
+    def test_no_op_on_empty_list(self, mocker):
+        mock_run = mocker.patch("prflow.git.subprocess.run", return_value=_completed())
+        stage_files([])
+        mock_run.assert_not_called()
+
+    def test_raises_git_error_on_failure(self, mocker):
+        mocker.patch("prflow.git.subprocess.run", return_value=_completed(returncode=1, stderr="bad path"))
+        with pytest.raises(GitError):
+            stage_files(["nonexistent.py"])
+
+
+class TestGetDiffForStagedFiles:
+    def test_uses_cached_flag(self, mocker):
+        mock_run = mocker.patch("prflow.git.subprocess.run", return_value=_completed("diff output"))
+        get_diff_for_staged_files(["file.py"])
+        cmd = mock_run.call_args[0][0]
+        assert "--cached" in cmd
+
+    def test_passes_files_after_separator(self, mocker):
+        mock_run = mocker.patch("prflow.git.subprocess.run", return_value=_completed("diff"))
+        get_diff_for_staged_files(["a.py", "b.py"])
+        cmd = mock_run.call_args[0][0]
+        assert "--" in cmd
+        assert "a.py" in cmd
+        assert "b.py" in cmd
+
+    def test_returns_empty_string_for_empty_files(self, mocker):
+        mocker.patch("prflow.git.subprocess.run", return_value=_completed(""))
+        result = get_diff_for_staged_files([])
+        assert result == ""
+
+    def test_returns_stdout(self, mocker):
+        mocker.patch("prflow.git.subprocess.run", return_value=_completed("the diff\n"))
+        result = get_diff_for_staged_files(["file.py"])
+        assert result == "the diff\n"
+
+
+class TestCommit:
+    def test_calls_git_commit_m(self, mocker):
+        mock_run = mocker.patch("prflow.git.subprocess.run", return_value=_completed())
+        commit("Add feature")
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["git", "commit", "-m", "Add feature"]
+
+    def test_appends_files_when_provided(self, mocker):
+        mock_run = mocker.patch("prflow.git.subprocess.run", return_value=_completed())
+        commit("Add feature", files=["a.py", "b.py"])
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["git", "commit", "-m", "Add feature", "--", "a.py", "b.py"]
+
+    def test_raises_git_error_on_failure(self, mocker):
+        mocker.patch("prflow.git.subprocess.run", return_value=_completed(returncode=1, stderr="pre-commit failed"))
+        with pytest.raises(GitError):
+            commit("Bad commit")
 
 
 class TestParseDiffIntoFiles:

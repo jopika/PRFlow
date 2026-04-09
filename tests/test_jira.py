@@ -7,7 +7,25 @@ from prflow.jira import (
     format_for_pr,
     get_backend,
     is_configured,
+    normalize_ticket_input,
 )
+
+
+class TestNormalizeTicketInput:
+    def test_bare_key_returned_unchanged(self):
+        assert normalize_ticket_input("AML-4419") == "AML-4419"
+
+    def test_full_url_extracts_key(self):
+        assert normalize_ticket_input("https://redfin.atlassian.net/browse/AML-4419") == "AML-4419"
+
+    def test_full_url_with_trailing_slash(self):
+        assert normalize_ticket_input("https://redfin.atlassian.net/browse/AML-4419/") == "AML-4419"
+
+    def test_strips_whitespace(self):
+        assert normalize_ticket_input("  PROJ-123  ") == "PROJ-123"
+
+    def test_http_url(self):
+        assert normalize_ticket_input("http://jira.internal/browse/FOO-1") == "FOO-1"
 
 
 class TestIsConfigured:

@@ -113,6 +113,33 @@ def get_dirty_files() -> dict[str, list[str]]:
     return {"staged": staged, "unstaged": unstaged, "untracked": untracked}
 
 
+def stage_files(files: list[str]) -> None:
+    """Stage the given files via git add."""
+    if not files:
+        return
+    _run(["git", "add", "--"] + files)
+
+
+def get_diff_for_staged_files(files: list[str]) -> str:
+    """Return unified diff of staged changes for the given files (git diff --cached)."""
+    if not files:
+        return ""
+    result = _run(["git", "diff", "--cached", "--"] + files)
+    return result.stdout
+
+
+def commit(message: str, files: list[str] | None = None) -> None:
+    """Run git commit with the given message.
+
+    If files is provided, commits only staged changes for those paths — other
+    staged files remain staged. Raises GitError on failure.
+    """
+    cmd = ["git", "commit", "-m", message]
+    if files:
+        cmd += ["--"] + files
+    _run(cmd)
+
+
 def get_changed_files(base: str) -> list[str]:
     """List files changed in committed work vs origin/<base> (branch commits only)."""
     result = _run(["git", "diff", "--name-only", f"origin/{base}..HEAD"])

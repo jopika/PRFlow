@@ -1,48 +1,45 @@
-# Python
+# Python bytecode and extension artifacts
 __pycache__/
 *.py[cod]
-*.pyo
 *.pyd
 *.so
+
+# Build and packaging artifacts
+.eggs/
 *.egg
 *.egg-info/
-dist/
 build/
-.eggs/
-
-# Virtual environments
-.venv
-venv/
-env/
-ENV/
-
-# Packaging / installed artifacts
-*.egg-info/
+dist/
 pip-wheel-metadata/
 MANIFEST
 
-# pytest
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+pipx_app_venv/
+
+# Test and coverage outputs
 .pytest_cache/
-.coverage
-htmlcov/
 .tox/
+.coverage
+.coverage.*
+htmlcov/
 
-# Distribution
-dist/
-build/
+# Local environment and machine-specific config
+.env
+.env.*
+*.local.yaml
+.claude
+.claude/
+.codex
+.codex/
 
-# Editor / OS
+# Editor and OS files
 .DS_Store
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
-.claude
-
-# Secrets / local config
-.env
-*.local.yaml
-
-# pipx build artifacts
-pipx_app_venv/

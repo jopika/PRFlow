@@ -8,11 +8,13 @@ import pytest
 from prflow.llm import (
     ClaudeBackend,
     LLMError,
+    generate_commit_message,
     generate_pr_update,
     chunk_file_diffs,
     extract_json,
     get_backend,
 )
+from prflow.prompts import COMMIT_MESSAGE_SYSTEM_PROMPT
 
 
 class TestExtractJson:
@@ -168,6 +170,66 @@ class TestChunkFileDiffs:
 
     def test_empty(self):
         assert chunk_file_diffs({}) == []
+
+
+class TestGenerateCommitMessage:
+    def test_returns_stripped_plain_text(self, mocker):
+        mock_backend = mocker.MagicMock()
+        mock_backend.generate.return_value = "  Add interactive commit flow  \n"
+        mocker.patch("prflow.llm.get_backend", return_value=mock_backend)
+
+        result = generate_commit_message({"llm": {}}, "diff text", ["file.py"])
+
+        assert result == "Add interactive commit flow"
+
+    def test_uses_commit_system_prompt(self, mocker):
+        mock_backend = mocker.MagicMock()
+        mock_backend.generate.return_value = "Add feature"
+        mocker.patch("prflow.llm.get_backend", return_value=mock_backend)
+
+        generate_commit_message({"llm": {}}, "diff", ["file.py"])
+
+        system_prompt = mock_backend.generate.call_args[0][0]
+        assert system_prompt == COMMIT_MESSAGE_SYSTEM_PROMPT
+
+    def test_includes_diff_in_user_prompt(self, mocker):
+        mock_backend = mocker.MagicMock()
+        mock_backend.generate.return_value = "Add feature"
+        mocker.patch("prflow.llm.get_backend", return_value=mock_backend)
+
+        generate_commit_message({"llm": {}}, "the actual diff", ["file.py"])
+
+        user_prompt = mock_backend.generate.call_args[0][1]
+        assert "the actual diff" in user_prompt
+
+    def test_includes_file_list_in_user_prompt(self, mocker):
+        mock_backend = mocker.MagicMock()
+        mock_backend.generate.return_value = "Add feature"
+        mocker.patch("prflow.llm.get_backend", return_value=mock_backend)
+
+        generate_commit_message({"llm": {}}, "diff", ["src/a.py", "src/b.py"])
+
+        user_prompt = mock_backend.generate.call_args[0][1]
+        assert "src/a.py" in user_prompt
+        assert "src/b.py" in user_prompt
+
+    def test_falls_back_to_placeholder_when_diff_empty(self, mocker):
+        mock_backend = mocker.MagicMock()
+        mock_backend.generate.return_value = "Add binary asset"
+        mocker.patch("prflow.llm.get_backend", return_value=mock_backend)
+
+        generate_commit_message({"llm": {}}, "", ["image.png"])
+
+        user_prompt = mock_backend.generate.call_args[0][1]
+        assert "binary or no diff available" in user_prompt
+
+    def test_propagates_llm_error(self, mocker):
+        mock_backend = mocker.MagicMock()
+        mock_backend.generate.side_effect = LLMError("timed out")
+        mocker.patch("prflow.llm.get_backend", return_value=mock_backend)
+
+        with pytest.raises(LLMError, match="timed out"):
+            generate_commit_message({"llm": {}}, "diff", ["file.py"])
 
 
 class TestGeneratePrUpdate:

@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.status import Status
 
 from prflow.prompts import (
+    COMMIT_MESSAGE_SYSTEM_PROMPT,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT_TEMPLATE,
     ORCHESTRATOR_SYSTEM_PROMPT,
@@ -270,6 +271,18 @@ def generate_pr_content_full_diff(
         raw = backend.generate(ORCHESTRATOR_SYSTEM_PROMPT, user_prompt)
 
     return extract_json(raw)
+
+
+def generate_commit_message(config: dict, diff: str, file_list: list[str]) -> str:
+    """Generate a single-line commit message from staged diff.
+
+    Returns a plain string (no JSON parsing). Raises LLMError on failure.
+    """
+    backend = get_backend(config)
+    user_content = "## Files changed\n" + "\n".join(file_list)
+    user_content += "\n\n## Diff\n" + (diff if diff else "(binary or no diff available)")
+    raw = backend.generate(COMMIT_MESSAGE_SYSTEM_PROMPT, user_content)
+    return raw.strip()
 
 
 def generate_pr_update(

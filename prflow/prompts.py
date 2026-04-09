@@ -124,3 +124,9 @@ UPDATE_USER_PROMPT_TEMPLATE = """\
 {seed_section}\
 {jira_section}\
 """
+
+COMMIT_MESSAGE_SYSTEM_PROMPT = (
+    "You are a commit message generator. Output exactly one line: an imperative-mood "
+    "git commit message, max 72 characters, no trailing period, no markdown, no quotes, "
+    "no commentary. Just the message."
+)

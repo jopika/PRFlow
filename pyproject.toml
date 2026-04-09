@@ -11,6 +11,7 @@ dependencies = [
     "click>=8",
     "rich>=13",
     "PyYAML>=6",
+    "prompt_toolkit>=3",
 ]
 
 [project.optional-dependencies]

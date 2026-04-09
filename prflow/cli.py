@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from prflow import __version__, git, github, jira, llm, template
+from prflow.picker import CommitPicker, PickerFile, PickerResult
 from prflow.config import get_repo_root, load_config
 
 console = Console()
@@ -66,6 +67,119 @@ def display_body_diff(old_body: str, new_body: str) -> None:
         else:
             console.print(f"[dim]{line}[/dim]")
     console.rule()
+
+
+def _view_diff(path: str, category: str) -> None:
+    """Open a pager to show the diff or content of a file."""
+    import subprocess as _sp
+
+    if category == "staged":
+        diff_cmd = ["git", "diff", "--cached", "--color=always", "--", path]
+    elif category == "unstaged":
+        diff_cmd = ["git", "diff", "--color=always", "--", path]
+    else:  # untracked — no diff, show raw file
+        _sp.run(["less", path])
+        return
+
+    diff_proc = _sp.Popen(diff_cmd, stdout=_sp.PIPE)
+    less_proc = _sp.Popen(["less", "-R"], stdin=diff_proc.stdout)
+    diff_proc.stdout.close()
+    less_proc.wait()
+    diff_proc.wait()
+
+
+def _do_commit_flow(dirty: dict, config: dict) -> None:
+    """Interactive TUI file picker → commit message → git commit."""
+    files: list[PickerFile] = []
+    for category in ("staged", "unstaged", "untracked"):
+        for path in dirty.get(category, []):
+            files.append(PickerFile(path=path, category=category))
+
+    picker = CommitPicker(files=files, view_diff_fn=_view_diff)
+    result = picker.run()
+
+    if result is None or not result.selected_files:
+        console.print("[dim]Commit cancelled.[/dim]")
+        return
+
+    # Stage any selected files that aren't already staged
+    to_stage = [pf.path for pf in result.selected_files if pf.category != "staged"]
+    if to_stage:
+        git.stage_files(to_stage)
+
+    commit_message: str | None = result.message or None  # empty string → None → LLM generates
+    selected_paths = [pf.path for pf in result.selected_files]
+
+    if commit_message is None:
+        with console.status("[bold blue]Generating commit message..."):
+            try:
+                diff = git.get_diff_for_staged_files(selected_paths)
+                commit_message = llm.generate_commit_message(config, diff, selected_paths)
+            except llm.LLMError as e:
+                console.print(f"[yellow]LLM failed: {e}. Please type a message.[/yellow]")
+                commit_message = click.prompt("Commit message").strip()
+                if not commit_message:
+                    return
+
+        console.print(f"\n  [bold]Generated:[/bold] {commit_message}")
+        use_choice = click.prompt(
+            "Use this message? [Y]es / [e]dit in $EDITOR / [n]o — type own",
+            default="y",
+        ).strip().lower()
+        if use_choice == "e":
+            commit_message = edit_body_in_editor(commit_message).strip()
+        elif use_choice not in ("", "y"):
+            commit_message = click.prompt("Commit message").strip()
+            if not commit_message:
+                return
+
+    git.commit(commit_message, files=selected_paths)
+
+    n = len(selected_paths)
+    files_str = ", ".join(selected_paths[:3])
+    if n > 3:
+        files_str += f" (+{n - 3} more)"
+    console.print(f"[green]Committed {n} file{'s' if n != 1 else ''}:[/green] {files_str}")
+    console.print(f"[dim]  {commit_message}[/dim]")
+
+
+def _handle_dirty_files(dirty: dict, interactive: bool, config: dict) -> None:
+    """Display uncommitted files by category and optionally commit staged ones."""
+    if not any(dirty.values()):
+        return
+
+    category_styles = [
+        ("staged", "green", "Staged files"),
+        ("unstaged", "yellow", "Unstaged changes"),
+        ("untracked", "dim", "Untracked files"),
+    ]
+    for key, style, title in category_styles:
+        files = dirty.get(key, [])
+        if files:
+            table = Table(title=title, show_header=False)
+            table.add_column("File", style=style)
+            for f in files:
+                table.add_row(f)
+            console.print(table)
+
+    if not interactive:
+        return
+
+    while True:
+        choice = click.prompt(
+            "How to proceed? [c]ommit / [y] continue / [n] abort",
+            default="y",
+        ).strip().lower()
+
+        if choice == "n":
+            raise click.Abort()
+        elif choice == "y":
+            return
+        elif choice == "c":
+            _do_commit_flow(dirty, config)
+            return
+        else:
+            console.print("[yellow]Invalid choice.[/yellow]")
 
 
 def _get_template_section() -> str:
@@ -132,36 +246,35 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, yes, full_diff, seed):
 
     # 2. Dirty files warning
     dirty = git.get_dirty_files()
-    has_dirty = any(dirty.values())
-    if has_dirty:
-        table = Table(title="Uncommitted changes", show_header=True)
-        table.add_column("Category", style="bold")
-        table.add_column("Files")
-        for category, files in dirty.items():
-            if files:
-                table.add_row(category.capitalize(), ", ".join(files))
-        console.print(table)
-        if interactive:
-            click.confirm("Continue anyway?", default=True, abort=True)
+    _handle_dirty_files(dirty, interactive, config)
 
     # 3. Detect base branch early (needed for pre-commit file scoping and rebase)
     base_branch = git.get_base_branch(config)
 
     # 4. Pre-commit — run only on PR files, not all files
     if not no_pre_commit and config.get("pre_commit", True):
-        changed_files = git.get_changed_files(base_branch)
-        if changed_files:
-            _print_step("Pre-commit", f"Running pre-commit on {len(changed_files)} changed file(s)...")
-            result = subprocess.run(
-                ["pre-commit", "run", "--files"] + changed_files,
-                capture_output=False,
-            )
-            if result.returncode != 0:
-                console.print("[bold red][Pre-commit][/bold red] Pre-commit hooks failed. Fix issues and retry.")
-                sys.exit(1)
-            _print_step("Pre-commit", "[green]✓[/green]")
+        try:
+            repo_root = get_repo_root()
+            has_pre_commit_config = os.path.isfile(os.path.join(repo_root, ".pre-commit-config.yaml"))
+        except RuntimeError:
+            has_pre_commit_config = False
+
+        if not has_pre_commit_config:
+            _print_step("Pre-commit", "[dim]Skipped — no .pre-commit-config.yaml found[/dim]")
         else:
-            _print_step("Pre-commit", "[dim]Skipped — no committed changes yet[/dim]")
+            changed_files = git.get_changed_files(base_branch)
+            if changed_files:
+                _print_step("Pre-commit", f"Running pre-commit on {len(changed_files)} changed file(s)...")
+                result = subprocess.run(
+                    ["pre-commit", "run", "--files"] + changed_files,
+                    capture_output=False,
+                )
+                if result.returncode != 0:
+                    console.print("[bold red][Pre-commit][/bold red] Pre-commit hooks failed. Fix issues and retry.")
+                    sys.exit(1)
+                _print_step("Pre-commit", "[green]✓[/green]")
+            else:
+                _print_step("Pre-commit", "[dim]Skipped — no committed changes yet[/dim]")
 
     if not no_rebase:
         _print_step("Sync", f"Fetching + rebasing onto origin/{base_branch}...")
@@ -226,7 +339,9 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, yes, full_diff, seed):
         # 6. Jira
         jira_snippet = ""
         if interactive:
-            ticket_key = click.prompt("Jira ticket key (blank to skip)", default="", show_default=False)
+            ticket_key = jira.normalize_ticket_input(
+                click.prompt("Jira ticket key or URL (blank to skip)", default="", show_default=False)
+            )
         else:
             ticket_key = ""
 

@@ -44,6 +44,18 @@ class McpBackend(JiraBackend):
         )
 
 
+def normalize_ticket_input(raw: str) -> str:
+    """Extract a ticket key from a full Jira URL, or return the input unchanged.
+
+    Handles both full URLs (https://company.atlassian.net/browse/PROJ-123)
+    and bare keys (PROJ-123).
+    """
+    raw = raw.strip()
+    if raw.startswith(("http://", "https://")):
+        return raw.rstrip("/").split("/")[-1]
+    return raw
+
+
 def is_configured(config: dict) -> bool:
     """Return True if Jira is configured (base_url is set)."""
     return config.get("jira", {}).get("base_url") is not None

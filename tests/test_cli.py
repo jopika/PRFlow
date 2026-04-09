@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from importlib.metadata import PackageNotFoundError, version as package_version
 
 import click
 import pytest
@@ -22,6 +23,13 @@ class TestCli:
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
         assert __version__ in result.output
+
+    def test_version_matches_installed_metadata(self):
+        try:
+            installed_version = package_version("prflow")
+        except PackageNotFoundError:
+            pytest.skip("prflow is not installed in the current environment")
+        assert installed_version == __version__
 
     def test_help(self):
         runner = CliRunner()

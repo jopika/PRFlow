@@ -15,6 +15,7 @@ MANIFEST
 
 # Virtual environments
 .venv/
+.venv-release-check/
 venv/
 env/
 ENV/

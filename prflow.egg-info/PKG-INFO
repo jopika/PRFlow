@@ -1,8 +1,10 @@
 Metadata-Version: 2.4
 Name: prflow
-Version: 0.1.0
+Version: 0.2.1
 Summary: CLI tool that automates PR preparation
 Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: click>=8
 Requires-Dist: rich>=13
 Requires-Dist: PyYAML>=6
@@ -10,3 +12,261 @@ Requires-Dist: prompt_toolkit>=3
 Provides-Extra: dev
 Requires-Dist: pytest>=7; extra == "dev"
 Requires-Dist: pytest-mock>=3; extra == "dev"
+Dynamic: license-file
+
+# prflow
+
+A CLI tool that automates the full PR preparation flow: branch safety check, rebase, pre-commit hooks, LLM-generated title and description, Jira linking, and idempotent PR creation or update — all in one command.
+
+## Requirements
+
+- Python ≥ 3.9
+- [`gh`](https://cli.github.com/) — GitHub CLI, authenticated
+- [`claude`](https://claude.ai/code) CLI (default LLM backend)
+- `git`
+- `pre-commit` (optional, used if present)
+
+## Installation
+
+```bash
+./install.sh
+```
+
+Requires [`pipx`](https://pipx.pypa.io/). If you don't have it:
+
+```bash
+brew install pipx   # macOS
+pip install pipx    # other
+```
+
+The script installs `prflow` globally via pipx, then walks you through setting up `~/.prflow.yaml`:
+
+```
+Setting up ~/.prflow.yaml
+Press Enter to accept the default shown in [brackets].
+
+Jira base URL (e.g. https://your-company.atlassian.net/browse):
+LLM effort level (low/medium/high/max) [medium]:
+Claude model override (leave blank for CLI default):
+Create PRs as drafts by default? [Y/n]:
+Protected branches (comma-separated) [main,master]:
+```
+
+Re-run `./install.sh` at any time to reconfigure. To uninstall:
+
+```bash
+pipx uninstall prflow
+```
+
+For development (editable install):
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Usage
+
+```
+$ prflow [OPTIONS]
+```
+
+Run from any branch in any GitHub-backed git repo.
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `--no-pre-commit` | Skip pre-commit hooks |
+| `--no-rebase` | Skip fetch and rebase |
+| `--draft / --no-draft` | Override draft setting from config |
+| `--base BRANCH` | Override base branch |
+| `--dry-run` | Print what would happen without executing |
+| `--yes`, `-y` | Non-interactive: accept all defaults, skip prompts |
+| `--full-diff` | Use full diff with multi-agent analysis (slower, more thorough) |
+| `--seed TEXT`, `-s TEXT` | Extra context to seed the LLM (intent, background, notes) |
+| `--version` | Show version |
+
+## Interactive Flow
+
+### Creating a new PR
+
+```
+$ prflow
+
+[Branch] Current: feature/add-auth ✓
+
+[Dirty files] Uncommitted changes detected:
+  Staged:    src/auth.py
+  Continue anyway? [Y/n]:
+
+[Pre-commit] Running pre-commit on 3 changed file(s)... ✓
+[Sync] Fetching + rebasing onto origin/main... ✓
+
+[Commits] 2 commit(s) included:
+  a1b2c3d  Add JWT authentication middleware
+  d4e5f6a  Add auth configuration endpoint
+
+[Context] Additional context for the LLM (press Enter to skip):
+> This PR introduces JWT auth as part of the security hardening initiative
+
+[Jira] Ticket key (blank to skip): PROJ-456
+  → https://mycompany.atlassian.net/browse/PROJ-456
+
+[LLM] Generating PR content with Claude... ✓
+
+  Title: Add JWT authentication middleware with config endpoint
+
+  ── Body preview ───────────────────────────────────────────
+  ## Overview
+  Adds JWT-based authentication...
+  ───────────────────────────────────────────────────────────
+
+  Edit body in $EDITOR? [y/N]:
+
+[PR] Pushing to origin/feature/add-auth... ✓
+[PR] Creating draft PR... ✓
+  → https://github.com/myorg/myrepo/pull/142
+```
+
+### Updating an existing PR
+
+When a PR already exists for the current branch, `prflow` fetches the existing body, sends it to the LLM alongside the full commit history, and shows a colored diff of what changed before applying.
+
+```
+$ prflow --no-rebase
+
+[Branch] Current: feature/add-auth ✓
+[Commits] 4 commit(s) included:
+  ...
+  e7f8a9b  Add token refresh logic
+  b0c1d2e  Fix token expiry edge case
+
+[PR] Existing PR found: #142 (open)
+[LLM] Updating PR content based on existing body... ✓
+
+  Title: Add JWT authentication middleware with config endpoint (unchanged)
+
+  ── Changes to PR body ─────────────────────────────────────
+    ## Overview
+    Adds JWT-based authentication...
+  + Includes token refresh logic and edge case handling for expiry.
+
+    ## Changes
+    - Added auth.py with JWT validation
+  + - Added token refresh with configurable TTL
+  + - Fixed edge case where expired tokens weren't rejected
+  ───────────────────────────────────────────────────────────
+
+  Edit body in $EDITOR? [y/N]:
+
+[PR] Pushing to origin/feature/add-auth... ✓
+[PR] Updated: https://github.com/myorg/myrepo/pull/142
+```
+
+The LLM preserves your existing body (including manual edits made on GitHub) and adds information about new commits. It won't remove content you added manually.
+
+### `--full-diff` mode
+
+By default, `prflow` sends only the diff stat to the LLM (fast, low token cost). With `--full-diff`, it runs a multi-agent pipeline:
+
+1. The full diff is split into chunks of up to 10 files, grouped by directory
+2. Sub-agents analyze each chunk in parallel (up to 4 concurrent)
+3. An orchestrator synthesizes all summaries into the final PR description
+
+Use this for large or complex PRs where the stat summary isn't enough context.
+
+## Configuration
+
+`prflow` uses layered YAML config. Later layers override earlier ones:
+
+| Layer | Path | Purpose |
+|---|---|---|
+| Built-in defaults | (hardcoded) | Sensible starting point |
+| Global user config | `~/.prflow.yaml` | Your cross-repo preferences |
+| Repo config | `.prflow.yaml` (repo root) | Repo-specific overrides |
+| CLI flags | `--base`, `--draft`, etc. | Per-invocation overrides |
+
+### Example `~/.prflow.yaml`
+
+```yaml
+jira:
+  base_url: https://your-company.atlassian.net/browse
+
+protected_branches: [main, master, staging]
+
+draft: true
+
+llm:
+  effort: high
+```
+
+### Example `.prflow.yaml` (repo-level)
+
+```yaml
+base_branch: develop
+
+llm:
+  model: claude-opus-4-6
+  effort: medium
+  timeout: 180
+```
+
+### All config keys
+
+| Key | Default | Description |
+|---|---|---|
+| `base_branch` | `null` | Base branch for PRs. Auto-detected via `gh repo view` if not set. |
+| `protected_branches` | `[main, master]` | Branches you cannot open a PR from. |
+| `pre_commit` | `true` | Run pre-commit hooks on changed files before pushing. |
+| `draft` | `true` | Create PRs as drafts by default. |
+| `llm.backend` | `claude` | LLM backend: `claude`, `openai` (stub), or `custom`. |
+| `llm.model` | `null` | Override the Claude model. Uses the CLI default if not set. |
+| `llm.effort` | `medium` | Claude thinking effort: `low`, `medium`, `high`, or `max`. |
+| `llm.command` | `null` | Shell command for the `custom` backend. Prompt is passed via stdin. |
+| `llm.full_diff_group_size` | `10` | Max files per chunk in `--full-diff` mode. |
+| `llm.timeout` | `120` | LLM call timeout in seconds. |
+| `jira.backend` | `url_only` | Jira backend: `url_only`, `rest_api` (stub), or `mcp` (stub). |
+| `jira.base_url` | `null` | Jira instance URL. Jira prompts are skipped if not set. |
+
+### Jira backends
+
+| Backend | Status | Description |
+|---|---|---|
+| `url_only` | Ready | Constructs a link from the ticket key. Requires `jira.base_url`. |
+| `rest_api` | Stub | Fetches ticket title/description via Jira REST API. Needs `jira.token` and `jira.email`. |
+| `mcp` | Stub | Intended for use inside Claude Code with a Jira MCP server configured. |
+
+## PR body structure
+
+When no repo PR template is found, `prflow` uses this default structure:
+
+```markdown
+## Overview
+[High-level description of what is changing and why]
+
+## Changes
+[Detailed breakdown of the changes introduced]
+
+## Artifacts
+[Jira links, references to documentation, or other relevant links]
+```
+
+If a `.github/pull_request_template.md` (or similar) exists in the repo, its sections are used instead.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest tests/
+```
+
+Tests mock all subprocess calls — no real git, gh, or claude invocations during the test suite.
+
+## Releases
+
+Releases are managed by GitHub Actions with Release Please.
+
+- Merge regular work into `main`.
+- Release Please keeps a release PR open with version bumps and changelog updates.
+- Review and edit the changelog in that release PR as needed, then merge it to cut the release.
+- GitHub Actions builds a source distribution and wheel and uploads both files to the GitHub Release.

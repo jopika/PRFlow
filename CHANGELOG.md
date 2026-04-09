@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/jopika/PRFlow/compare/v0.2.2...v0.3.0) (2026-04-09)
+
+
+### Features
+
+* add self-update checks and upgrade flow ([4cd2865](https://github.com/jopika/PRFlow/commit/4cd28654f68929e62a8c18356b5a272fdd75390e))
+
 ## [0.2.2](https://github.com/jopika/PRFlow/compare/v0.2.1...v0.2.2) (2026-04-09)
 
 

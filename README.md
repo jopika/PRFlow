@@ -45,6 +45,7 @@ Jira base URL (e.g. https://your-company.atlassian.net/browse):
 LLM effort level (low/medium/high/max) [medium]:
 Claude model override (leave blank for CLI default):
 Create PRs as drafts by default? [Y/n]:
+Enable automatic update checks? [Y/n]:
 Protected branches (comma-separated) [main,master]:
 ```
 

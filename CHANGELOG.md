@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.1](https://github.com/jopika/PRFlow/compare/v0.3.0...v0.3.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* add missing prompt for auto-update during install ([073d31f](https://github.com/jopika/PRFlow/commit/073d31f3b27ec19d2dc8ce7b1bd08987393581a9))
+* broken tests with hardcoded values ([4b49a47](https://github.com/jopika/PRFlow/commit/4b49a47e127401dbfa230f989e7c12c6ebebe2b4))
+
+
+### Documentation
+
+* update to move release process to own file ([c66ae87](https://github.com/jopika/PRFlow/commit/c66ae87aad9e9eafab683987d75c0318e7c5a3cd))
+
 ## [0.3.0](https://github.com/jopika/PRFlow/compare/v0.2.2...v0.3.0) (2026-04-09)
 
 

@@ -238,8 +238,9 @@ def run_upgrade() -> bool:
         )
         return False
 
-    console.print("[cyan]Running:[/cyan] pipx upgrade prflow")
-    result = subprocess.run(["pipx", "upgrade", "prflow"])
+    cwd = Path.home() # Override cwd to home to minimize name collision for pipx
+
+    result = subprocess.run(["pipx", "upgrade", "prflow"], cwd=str(cwd))
     if result.returncode == 0:
         console.print("[green]prflow was updated successfully.[/green]")
         return True

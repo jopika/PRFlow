@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/jopika/PRFlow/compare/v0.3.1...v0.3.2) (2026-04-09)
+
+
+### Bug Fixes
+
+* name collision when updating ([c871803](https://github.com/jopika/PRFlow/commit/c87180368d4461a73ea322251826232a07b9c6c8))
+
 ## [0.3.1](https://github.com/jopika/PRFlow/compare/v0.3.0...v0.3.1) (2026-04-09)
 
 

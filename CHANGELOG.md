@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/jopika/PRFlow/compare/v0.3.2...v0.3.3) (2026-04-09)
+
+
+### Bug Fixes
+
+* update routine now pulls from Github Releases ([b1215e3](https://github.com/jopika/PRFlow/commit/b1215e3e5333deae66d06288224ee0dc8425225b))
+
 ## [0.3.2](https://github.com/jopika/PRFlow/compare/v0.3.1...v0.3.2) (2026-04-09)
 
 

@@ -42,17 +42,45 @@ class TestCli:
         assert "--yes" in result.output
         assert "--draft" in result.output
         assert "--base" in result.output
+        assert "--update" in result.output
 
     def test_exits_on_git_error(self, mocker):
         """Any GitError during startup should print an error and exit 1."""
         mocker.patch("prflow.cli.load_config", return_value={
             "draft": True, "pre_commit": False, "protected_branches": ["main"],
         })
+        mocker.patch("prflow.cli.update.handle_startup_update")
         mocker.patch("prflow.git.current_branch", side_effect=__import__("prflow.git", fromlist=["GitError"]).GitError("not a git repo"))
         runner = CliRunner()
         result = runner.invoke(main, ["--dry-run"])
         assert result.exit_code != 0
         assert "Error" in result.output
+
+    def test_update_flag_handles_update_and_exits(self, mocker):
+        mocker.patch("prflow.cli.load_config", return_value={"updates": {"enabled": True}})
+        mock_handle = mocker.patch("prflow.cli.update.handle_manual_update")
+        mock_current_branch = mocker.patch("prflow.cli.git.current_branch")
+
+        result = CliRunner().invoke(main, ["--update"])
+
+        assert result.exit_code == 0
+        mock_handle.assert_called_once_with({"updates": {"enabled": True}})
+        mock_current_branch.assert_not_called()
+
+    def test_startup_update_runs_before_main_flow(self, mocker):
+        config = {
+            "draft": True,
+            "pre_commit": False,
+            "protected_branches": ["main"],
+            "updates": {"enabled": True},
+        }
+        mocker.patch("prflow.cli.load_config", return_value=config)
+        mock_startup = mocker.patch("prflow.cli.update.handle_startup_update")
+        mocker.patch("prflow.cli.git.current_branch", side_effect=GitError("not a git repo"))
+
+        CliRunner().invoke(main, ["--dry-run"])
+
+        mock_startup.assert_called_once_with(config, True)
 
 
 class TestHandleDirtyFiles:
@@ -304,6 +332,7 @@ class TestPreCommitGating:
 
     def _setup(self, mocker):
         mocker.patch("prflow.cli.load_config", return_value=self._config)
+        mocker.patch("prflow.cli.update.handle_startup_update")
         mocker.patch("prflow.cli.git.current_branch", return_value="feature/test")
         mocker.patch("prflow.cli.git.is_protected_branch", return_value=False)
         mocker.patch("prflow.cli.git.get_dirty_files", return_value={"staged": [], "unstaged": [], "untracked": []})

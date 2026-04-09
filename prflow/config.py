@@ -24,6 +24,11 @@ DEFAULTS = {
     "protected_branches": ["main", "master"],
     "pre_commit": True,
     "draft": True,
+    "updates": {
+        "enabled": True,
+        "check_interval_hours": 24,
+        "github_repo": "jopika/PRFlow",
+    },
 }
 
 

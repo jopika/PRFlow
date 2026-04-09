@@ -63,6 +63,9 @@ class TestLoadConfig:
         assert config["jira"]["base_url"] is None
         assert config["base_branch"] is None
         assert config["draft"] is True
+        assert config["updates"]["enabled"] is True
+        assert config["updates"]["check_interval_hours"] == 24
+        assert config["updates"]["github_repo"] == "jopika/PRFlow"
 
     def test_global_config_merges(self, mocker, tmp_path):
         mocker.patch("prflow.config.get_repo_root", side_effect=RuntimeError)
@@ -73,6 +76,23 @@ class TestLoadConfig:
         assert config["draft"] is False
         assert config["jira"]["base_url"] == "https://example.com"
         assert config["llm"]["backend"] == "claude"  # preserved from defaults
+
+    def test_updates_config_merges(self, mocker, tmp_path):
+        mocker.patch("prflow.config.get_repo_root", side_effect=RuntimeError)
+        mocker.patch("prflow.config.Path.home", return_value=tmp_path)
+        global_cfg = tmp_path / ".prflow.yaml"
+        global_cfg.write_text(
+            "updates:\n"
+            "  enabled: false\n"
+            "  check_interval_hours: 12\n"
+            "  github_repo: acme/prflow\n"
+        )
+
+        config = load_config()
+
+        assert config["updates"]["enabled"] is False
+        assert config["updates"]["check_interval_hours"] == 12
+        assert config["updates"]["github_repo"] == "acme/prflow"
 
     def test_repo_config_overrides_global(self, mocker, tmp_path):
         repo_root = tmp_path / "repo"

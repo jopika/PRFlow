@@ -12,7 +12,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from prflow import __version__, git, github, jira, llm, template
+from prflow import __version__, git, github, jira, llm, template, update
 from prflow.picker import CommitPicker, PickerFile, PickerResult
 from prflow.config import get_repo_root, load_config
 
@@ -201,14 +201,15 @@ def _get_template_section() -> str:
 @click.option("--draft/--no-draft", default=None, help="Create PR as draft (default: from config)")
 @click.option("--base", default=None, help="Override base branch")
 @click.option("--dry-run", is_flag=True, help="Print actions without executing")
+@click.option("--update", "update_requested", is_flag=True, help="Check for a newer prflow release and optionally upgrade")
 @click.option("--yes", "-y", is_flag=True, help="Non-interactive, accept all defaults")
 @click.option("--full-diff", is_flag=True, help="Use full diff with multi-agent analysis")
 @click.option("--seed", "-s", default=None, help="Extra context to seed the LLM (intent, background, notes)")
 @click.version_option(version=__version__, prog_name="prflow")
-def main(no_pre_commit, no_rebase, draft, base, dry_run, yes, full_diff, seed):
+def main(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, full_diff, seed):
     """Automate PR preparation: branch check, rebase, LLM-generated description, and PR creation."""
     try:
-        _run(no_pre_commit, no_rebase, draft, base, dry_run, yes, full_diff, seed)
+        _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, full_diff, seed)
     except (git.GitError, llm.LLMError, github.GitHubError) as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         sys.exit(1)
@@ -217,7 +218,7 @@ def main(no_pre_commit, no_rebase, draft, base, dry_run, yes, full_diff, seed):
         sys.exit(1)
 
 
-def _run(no_pre_commit, no_rebase, draft, base, dry_run, yes, full_diff, seed):
+def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, full_diff, seed):
     cli_overrides = {}
     if base is not None:
         cli_overrides["base_branch"] = base
@@ -225,8 +226,15 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, yes, full_diff, seed):
         cli_overrides["draft"] = draft
 
     config = load_config(cli_overrides)
-    use_draft = config["draft"]
     interactive = not yes
+
+    if update_requested:
+        update.handle_manual_update(config)
+        return
+
+    update.handle_startup_update(config, interactive)
+
+    use_draft = config["draft"]
     seed_section = seed or ""
 
     # 1. Branch safety check

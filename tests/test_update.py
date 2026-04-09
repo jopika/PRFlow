@@ -7,6 +7,12 @@ from datetime import datetime, timedelta, timezone
 from prflow import update
 
 
+def _bump_patch(version: str) -> str:
+    parts = version.split(".")
+    parts[-1] = str(int(parts[-1]) + 1)
+    return ".".join(parts)
+
+
 class TestVersionHelpers:
     def test_normalize_version_strips_v_prefix(self):
         assert update.normalize_version("v0.2.1") == "0.2.1"
@@ -19,6 +25,29 @@ class TestVersionHelpers:
 
     def test_is_newer_version_false_for_invalid(self):
         assert update.is_newer_version("release-latest", "0.2.1") is False
+
+
+class TestReleaseLookup:
+    def test_get_latest_release_info_extracts_wheel_url(self, mocker):
+        payload = {
+            "tag_name": "v0.3.2",
+            "html_url": "https://example.com/release",
+            "assets": [
+                {"browser_download_url": "https://example.com/prflow-0.3.2-py3-none-any.whl"},
+            ],
+        }
+        response = mocker.MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        mocker.patch("prflow.update.request.urlopen", return_value=response)
+        mocker.patch("prflow.update.json.load", return_value=payload)
+
+        info = update.get_latest_release_info("jopika/PRFlow")
+
+        assert info.latest_version == "0.3.2"
+        assert info.release_url == "https://example.com/release"
+        assert info.wheel_url == "https://example.com/prflow-0.3.2-py3-none-any.whl"
+        assert info.error is None
 
 
 class TestCheckTiming:
@@ -42,6 +71,7 @@ class TestCheckForUpdates:
 
     def test_force_check_updates_state_and_reports_newer_version(self, mocker):
         now = datetime(2026, 4, 8, 12, tzinfo=timezone.utc)
+        newer_version = _bump_patch(update.__version__)
         mocker.patch("prflow.update.load_state", return_value={})
         save_state = mocker.patch("prflow.update.save_state")
 
@@ -49,13 +79,13 @@ class TestCheckForUpdates:
             self._config,
             force=True,
             now=now,
-            fetch_release=lambda repo: ("0.3.0", "https://example.com/release", None),
+            fetch_release=lambda repo: (newer_version, "https://example.com/release", None),
         )
 
         assert status.checked is True
         assert status.update_available is True
-        assert status.latest_version == "0.3.0"
-        assert state["latest_seen_version"] == "0.3.0"
+        assert status.latest_version == newer_version
+        assert state["latest_seen_version"] == newer_version
         save_state.assert_called_once()
 
     def test_uses_cached_version_when_throttled(self, mocker):
@@ -128,9 +158,11 @@ class TestCheckForUpdates:
 
 class TestStartupUpdateHandling:
     def test_first_seen_update_prompts_once(self, mocker):
+        current_version = update.__version__
+        newer_version = _bump_patch(current_version)
         status = update.UpdateStatus(
-            current_version="0.2.1",
-            latest_version="0.3.0",
+            current_version=current_version,
+            latest_version=newer_version,
             update_available=True,
         )
         state = {}
@@ -145,20 +177,22 @@ class TestStartupUpdateHandling:
         update.handle_startup_update({"updates": {"enabled": True}}, interactive=True)
 
         mock_confirm.assert_called_once()
-        assert state["last_prompted_version"] == "0.3.0"
-        assert state["last_declined_version"] == "0.3.0"
+        assert state["last_prompted_version"] == newer_version
+        assert state["last_declined_version"] == newer_version
         show_banner.assert_not_called()
         assert save_state.call_count == 2
         rendered = [str(call) for call in mock_console.print.call_args_list]
         assert any("Checking for prflow updates" in line for line in rendered)
 
     def test_declined_update_shows_banner_on_later_runs(self, mocker):
+        current_version = update.__version__
+        newer_version = _bump_patch(current_version)
         status = update.UpdateStatus(
-            current_version="0.2.1",
-            latest_version="0.3.0",
+            current_version=current_version,
+            latest_version=newer_version,
             update_available=True,
         )
-        state = {"last_prompted_version": "0.3.0", "last_declined_version": "0.3.0"}
+        state = {"last_prompted_version": newer_version, "last_declined_version": newer_version}
         mocker.patch("prflow.update.load_state", return_value=state.copy())
         mocker.patch("prflow.update.is_check_due", return_value=False)
         mocker.patch("prflow.update.check_for_updates", return_value=(status, state))
@@ -171,9 +205,11 @@ class TestStartupUpdateHandling:
         mock_confirm.assert_not_called()
 
     def test_non_interactive_mode_shows_banner_without_prompt(self, mocker):
+        current_version = update.__version__
+        newer_version = _bump_patch(current_version)
         status = update.UpdateStatus(
-            current_version="0.2.1",
-            latest_version="0.3.0",
+            current_version=current_version,
+            latest_version=newer_version,
             update_available=True,
         )
         mocker.patch("prflow.update.load_state", return_value={})
@@ -203,7 +239,11 @@ class TestStartupUpdateHandling:
 
 class TestManualUpdate:
     def test_manual_update_checks_and_prints_up_to_date(self, mocker):
-        status = update.UpdateStatus(current_version="0.2.1", latest_version="0.2.1", checked=True)
+        status = update.UpdateStatus(
+            current_version=update.__version__,
+            latest_version=update.__version__,
+            checked=True,
+        )
         mocker.patch("prflow.update.check_for_updates", return_value=(status, {}))
         mock_console = mocker.patch("prflow.update.console")
 
@@ -213,9 +253,11 @@ class TestManualUpdate:
         assert any("up to date" in line for line in rendered)
 
     def test_manual_update_runs_upgrade_when_confirmed(self, mocker):
+        current_version = update.__version__
+        newer_version = _bump_patch(current_version)
         status = update.UpdateStatus(
-            current_version="0.2.1",
-            latest_version="0.3.0",
+            current_version=current_version,
+            latest_version=newer_version,
             release_url="https://example.com/release",
             checked=True,
             update_available=True,
@@ -228,6 +270,49 @@ class TestManualUpdate:
 
         update.handle_manual_update({"updates": {"enabled": True}})
 
-        run_upgrade.assert_called_once()
+        run_upgrade.assert_called_once_with({"updates": {"enabled": True}})
         assert "last_prompted_version" not in state
         save_state.assert_called()
+
+
+class TestRunUpgrade:
+    def test_run_upgrade_installs_latest_release_wheel(self, mocker):
+        mocker.patch("prflow.update.shutil.which", return_value="/usr/bin/pipx")
+        mocker.patch(
+            "prflow.update.get_latest_release_info",
+            return_value=update.ReleaseInfo(
+                latest_version="0.3.2",
+                wheel_url="https://example.com/prflow-0.3.2-py3-none-any.whl",
+            ),
+        )
+        subprocess_run = mocker.patch("prflow.update.subprocess.run")
+        subprocess_run.return_value.returncode = 0
+        mock_console = mocker.patch("prflow.update.console")
+
+        result = update.run_upgrade({"updates": {"github_repo": "jopika/PRFlow"}})
+
+        assert result is True
+        subprocess_run.assert_called_once()
+        args, kwargs = subprocess_run.call_args
+        assert args[0] == [
+            "pipx",
+            "install",
+            "--force",
+            "https://example.com/prflow-0.3.2-py3-none-any.whl",
+        ]
+        assert "0.3.2" in str(mock_console.print.call_args_list[-1])
+
+    def test_run_upgrade_fails_when_release_has_no_wheel(self, mocker):
+        mocker.patch("prflow.update.shutil.which", return_value="/usr/bin/pipx")
+        mocker.patch(
+            "prflow.update.get_latest_release_info",
+            return_value=update.ReleaseInfo(latest_version="0.3.2"),
+        )
+        mocker.patch("prflow.update.subprocess.run")
+        mock_console = mocker.patch("prflow.update.console")
+
+        result = update.run_upgrade({"updates": {"github_repo": "jopika/PRFlow"}})
+
+        assert result is False
+        rendered = [str(call) for call in mock_console.print.call_args_list]
+        assert any("does not include a wheel asset" in line for line in rendered)

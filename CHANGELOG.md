@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/jopika/PRFlow/compare/v0.2.1...v0.2.2) (2026-04-09)
+
+
+### Bug Fixes
+
+* documentation on release system ([34eb2af](https://github.com/jopika/PRFlow/commit/34eb2aff67a397d5eec1e92754db547d0a6f0d75))
+
 ## [0.2.1] - 2026-04-08
 
 ### Changed

@@ -250,6 +250,14 @@ Tests mock all subprocess calls — no real git, gh, or claude invocations durin
 
 Releases are managed by GitHub Actions with Release Please.
 
+### Commit message format
+
+Release Please only opens release PRs for releasable commits it can parse. In practice, that means merge commits and direct commits to `main` should use Conventional Commits:
+
+- `feat: add interactive commit picker`
+- `fix: preserve staged files when commit is cancelled`
+- `deps: update click to 8.1.8`
+
 ### Release cycle
 
 1. Merge normal feature and fix PRs into `main`.
@@ -287,6 +295,8 @@ The workflow validates the built metadata with `twine check` before uploading th
 
 ### Notes
 
-- You do not need to create release tags by hand.
+- You only need to create a release tag by hand once, during the initial bootstrap.
+- After bootstrap, do not create release tags by hand; Release Please will create them when the release PR is merged.
+- If Release Please logs `commit could not be parsed`, check that the merged commit titles follow Conventional Commits.
 - You do not need to manually edit the version in multiple files.
 - CI in `.github/workflows/ci.yml` verifies tests and packaging on pull requests and on pushes to `main`.

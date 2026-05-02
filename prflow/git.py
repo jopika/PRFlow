@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import re
 import subprocess
+from typing import cast
 
 import click
+
+from prflow.types import Config, DirtyFiles
 
 
 class GitError(Exception):
     """Raised when a git operation fails."""
 
 
-def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
+def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     """Run a git command and return the result."""
     result = subprocess.run(args, capture_output=True, text=True)
     if check and result.returncode != 0:
@@ -33,15 +36,16 @@ def is_protected_branch(branch: str, protected: list[str]) -> bool:
 
 def prompt_create_branch() -> str:
     """Interactively ask for a new branch name and check it out."""
-    name = click.prompt("Enter new branch name")
+    name = cast(str, click.prompt("Enter new branch name"))
     _run(["git", "checkout", "-b", name])
     return name
 
 
-def get_base_branch(config: dict) -> str:
+def get_base_branch(config: Config) -> str:
     """Get base branch from config, or auto-detect via gh repo view."""
-    if config.get("base_branch"):
-        return config["base_branch"]
+    configured_base = config.get("base_branch")
+    if isinstance(configured_base, str) and configured_base:
+        return configured_base
 
     result = subprocess.run(
         ["gh", "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
@@ -72,7 +76,7 @@ def fetch_and_rebase(base: str) -> None:
 def get_commits_since_base(base: str) -> list[tuple[str, str]]:
     """Get commits since divergence from base as (hash, message) tuples."""
     result = _run(["git", "log", "--oneline", f"origin/{base}..HEAD"])
-    commits = []
+    commits: list[tuple[str, str]] = []
     for line in result.stdout.strip().splitlines():
         if line:
             parts = line.split(" ", 1)
@@ -85,15 +89,15 @@ def push_branch(branch: str) -> None:
     _run(["git", "push", "--set-upstream", "origin", branch])
 
 
-def get_dirty_files() -> dict[str, list[str]]:
+def get_dirty_files() -> DirtyFiles:
     """Get dirty files categorized by status.
 
     Returns dict with keys: staged, unstaged, untracked.
     """
     result = _run(["git", "status", "--porcelain"], check=False)
-    staged = []
-    unstaged = []
-    untracked = []
+    staged: list[str] = []
+    unstaged: list[str] = []
+    untracked: list[str] = []
 
     for line in result.stdout.splitlines():
         if len(line) < 3:
@@ -164,9 +168,9 @@ def get_full_diff(base: str) -> dict[str, str]:
 
 def _parse_diff_into_files(diff_text: str) -> dict[str, str]:
     """Split a unified diff into per-file chunks."""
-    files = {}
-    current_file = None
-    current_lines = []
+    files: dict[str, str] = {}
+    current_file: str | None = None
+    current_lines: list[str] = []
 
     for line in diff_text.splitlines(keepends=True):
         match = re.match(r"^diff --git a/(.+) b/(.+)$", line)

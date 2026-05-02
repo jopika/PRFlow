@@ -7,19 +7,21 @@ import os
 import subprocess
 import sys
 import tempfile
+from typing import cast
 
 import click
 from rich.console import Console
 from rich.table import Table
 
 from prflow import __version__, git, github, jira, llm, template, update
-from prflow.picker import CommitPicker, PickerFile, PickerResult
 from prflow.config import get_repo_root, load_config
+from prflow.picker import CommitPicker, FileStatusCategory, PickerFile
+from prflow.types import Config, DirtyFiles
 
 console = Console()
 
 
-def _print_step(label: str, message: str, style: str = "bold cyan"):
+def _print_step(label: str, message: str, style: str = "bold cyan") -> None:
     console.print(f"[{style}][{label}][/{style}] {message}")
 
 
@@ -82,16 +84,18 @@ def _view_diff(path: str, category: str) -> None:
         return
 
     diff_proc = _sp.Popen(diff_cmd, stdout=_sp.PIPE)
+    if diff_proc.stdout is None:
+        raise click.ClickException("Could not open git diff output pipe")
     less_proc = _sp.Popen(["less", "-R"], stdin=diff_proc.stdout)
     diff_proc.stdout.close()
     less_proc.wait()
     diff_proc.wait()
 
 
-def _do_commit_flow(dirty: dict, config: dict) -> None:
+def _do_commit_flow(dirty: DirtyFiles, config: Config) -> None:
     """Interactive TUI file picker → commit message → git commit."""
     files: list[PickerFile] = []
-    for category in ("staged", "unstaged", "untracked"):
+    for category in FileStatusCategory:
         for path in dirty.get(category, []):
             files.append(PickerFile(path=path, category=category))
 
@@ -117,19 +121,19 @@ def _do_commit_flow(dirty: dict, config: dict) -> None:
                 commit_message = llm.generate_commit_message(config, diff, selected_paths)
             except llm.LLMError as e:
                 console.print(f"[yellow]LLM failed: {e}. Please type a message.[/yellow]")
-                commit_message = click.prompt("Commit message").strip()
+                commit_message = cast(str, click.prompt("Commit message")).strip()
                 if not commit_message:
                     return
 
         console.print(f"\n  [bold]Generated:[/bold] {commit_message}")
-        use_choice = click.prompt(
+        use_choice = cast(str, click.prompt(
             "Use this message? [Y]es / [e]dit in $EDITOR / [n]o — type own",
             default="y",
-        ).strip().lower()
+        )).strip().lower()
         if use_choice == "e":
             commit_message = edit_body_in_editor(commit_message).strip()
         elif use_choice not in ("", "y"):
-            commit_message = click.prompt("Commit message").strip()
+            commit_message = cast(str, click.prompt("Commit message")).strip()
             if not commit_message:
                 return
 
@@ -143,7 +147,7 @@ def _do_commit_flow(dirty: dict, config: dict) -> None:
     console.print(f"[dim]  {commit_message}[/dim]")
 
 
-def _handle_dirty_files(dirty: dict, interactive: bool, config: dict) -> None:
+def _handle_dirty_files(dirty: DirtyFiles, interactive: bool, config: Config) -> None:
     """Display uncommitted files by category and optionally commit staged ones."""
     if not any(dirty.values()):
         return
@@ -166,10 +170,10 @@ def _handle_dirty_files(dirty: dict, interactive: bool, config: dict) -> None:
         return
 
     while True:
-        choice = click.prompt(
+        choice = cast(str, click.prompt(
             "How to proceed? [c]ommit / [y] continue / [n] abort",
             default="y",
-        ).strip().lower()
+        )).strip().lower()
 
         if choice == "n":
             raise click.Abort()
@@ -195,6 +199,13 @@ def _get_template_section() -> str:
     return template.format_sections_for_prompt(sections)
 
 
+def _required_str(data: dict[str, object], key: str) -> str:
+    value = data.get(key)
+    if not isinstance(value, str):
+        raise llm.LLMError(f"LLM response is missing string field: {key}")
+    return value
+
+
 @click.command()
 @click.option("--no-pre-commit", is_flag=True, help="Skip pre-commit hooks")
 @click.option("--no-rebase", is_flag=True, help="Skip fetch and rebase")
@@ -206,7 +217,17 @@ def _get_template_section() -> str:
 @click.option("--full-diff", is_flag=True, help="Use full diff with multi-agent analysis")
 @click.option("--seed", "-s", default=None, help="Extra context to seed the LLM (intent, background, notes)")
 @click.version_option(version=__version__, prog_name="prflow")
-def main(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, full_diff, seed):
+def main(
+    no_pre_commit: bool,
+    no_rebase: bool,
+    draft: bool | None,
+    base: str | None,
+    dry_run: bool,
+    update_requested: bool,
+    yes: bool,
+    full_diff: bool,
+    seed: str | None,
+) -> None:
     """Automate PR preparation: branch check, rebase, LLM-generated description, and PR creation."""
     try:
         _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, full_diff, seed)
@@ -218,8 +239,18 @@ def main(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, 
         sys.exit(1)
 
 
-def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, full_diff, seed):
-    cli_overrides = {}
+def _run(
+    no_pre_commit: bool,
+    no_rebase: bool,
+    draft: bool | None,
+    base: str | None,
+    dry_run: bool,
+    update_requested: bool,
+    yes: bool,
+    full_diff: bool,
+    seed: str | None,
+) -> None:
+    cli_overrides: Config = {}
     if base is not None:
         cli_overrides["base_branch"] = base
     if draft is not None:
@@ -234,12 +265,14 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, 
 
     update.handle_startup_update(config, interactive)
 
-    use_draft = config["draft"]
+    use_draft = bool(config["draft"])
     seed_section = seed or ""
 
     # 1. Branch safety check
     branch = git.current_branch()
-    protected = config.get("protected_branches", ["main", "master"])
+    protected_raw = config.get("protected_branches", ["main", "master"])
+    protected = protected_raw if isinstance(protected_raw, list) else ["main", "master"]
+    protected = [branch for branch in protected if isinstance(branch, str)]
 
     if git.is_protected_branch(branch, protected):
         console.print(f"[bold red][Branch][/bold red] On protected branch '{branch}'!")
@@ -301,11 +334,11 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, 
 
     # Seed prompt (interactive unless --seed was passed or --yes)
     if seed is None and interactive:
-        seed = click.prompt(
+        seed = cast(str, click.prompt(
             "\n[Context] Additional context for the LLM (press Enter to skip)",
             default="",
             show_default=False,
-        ) or None
+        )) or None
         seed_section = seed or ""
 
     # 5.5. Check for existing PR
@@ -315,8 +348,10 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, 
         # === UPDATE MODE ===
         _print_step("PR", f"Existing PR found: #{existing_pr['number']} ({existing_pr.get('state', 'open')})")
 
-        existing_title = existing_pr.get("title", "")
-        existing_body = existing_pr.get("body", "")
+        existing_title_raw = existing_pr.get("title", "")
+        existing_body_raw = existing_pr.get("body", "")
+        existing_title = existing_title_raw if isinstance(existing_title_raw, str) else ""
+        existing_body = existing_body_raw if isinstance(existing_body_raw, str) else ""
 
         # Collect diff stat (branch changes only)
         diff_stat = git.get_diff_stat(base_branch)
@@ -327,8 +362,8 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, 
             seed_section=seed_section,
         )
 
-        title = pr_content["title"]
-        body = pr_content["body"]
+        title = _required_str(pr_content, "title")
+        body = _required_str(pr_content, "body")
 
         # Show title change
         console.print()
@@ -348,7 +383,7 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, 
         jira_snippet = ""
         if interactive:
             ticket_key = jira.normalize_ticket_input(
-                click.prompt("Jira ticket key or URL (blank to skip)", default="", show_default=False)
+                cast(str, click.prompt("Jira ticket key or URL (blank to skip)", default="", show_default=False))
             )
         else:
             ticket_key = ""
@@ -384,8 +419,8 @@ def _run(no_pre_commit, no_rebase, draft, base, dry_run, update_requested, yes, 
                 seed_section=seed_section,
             )
 
-        title = pr_content["title"]
-        body = pr_content["body"]
+        title = _required_str(pr_content, "title")
+        body = _required_str(pr_content, "body")
 
         # Show title + full body preview (no truncation)
         console.print()

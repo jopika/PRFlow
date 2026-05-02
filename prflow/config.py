@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import cast
 
 import yaml
 
-DEFAULTS = {
+from prflow.types import Config
+
+DEFAULTS: Config = {
     "llm": {
         "backend": "claude",
         "model": None,
@@ -32,23 +35,24 @@ DEFAULTS = {
 }
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: Config, override: Config) -> Config:
     """Recursively merge override into base. Dicts are merged; scalars/lists are replaced."""
     result = base.copy()
     for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
+        base_value = result.get(key)
+        if isinstance(base_value, dict) and isinstance(value, dict):
+            result[key] = _deep_merge(cast(Config, base_value), cast(Config, value))
         else:
             result[key] = value
     return result
 
 
-def _load_yaml_file(path: Path) -> dict:
+def _load_yaml_file(path: Path) -> Config:
     """Load a YAML file, returning {} if missing or invalid."""
     try:
         with open(path) as f:
-            data = yaml.safe_load(f)
-            return data if isinstance(data, dict) else {}
+            data: object = yaml.safe_load(f)
+            return cast(Config, data) if isinstance(data, dict) else {}
     except (OSError, yaml.YAMLError):
         return {}
 
@@ -65,7 +69,7 @@ def get_repo_root() -> Path:
     return Path(result.stdout.strip())
 
 
-def load_config(cli_overrides: dict | None = None) -> dict:
+def load_config(cli_overrides: Config | None = None) -> Config:
     """Merge: DEFAULTS <- ~/.prflow.yaml <- <repo>/.prflow.yaml <- cli_overrides."""
     config = _deep_merge({}, DEFAULTS)
 

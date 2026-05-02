@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
+from enum import Enum
 
 from prompt_toolkit import Application
 from prompt_toolkit.filters import Condition
@@ -13,30 +14,27 @@ from prompt_toolkit.layout import DynamicContainer, HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import TextArea
 
-_CATEGORY_LABEL = {
-    "staged": "Staged",
-    "unstaged": "Unstaged",
-    "untracked": "Untracked",
-}
-_CATEGORY_STYLE = {
-    "staged": "fg:ansigreen",
-    "unstaged": "fg:ansiyellow",
-    "untracked": "fg:ansibrightblack",
-}
+class FileStatusCategory(Enum):
+    Staged = "staged"
+    Unstaged = "unstaged"
+    Untracked = "untracked"
 
+_CATEGORY_STYLE = {
+    FileStatusCategory.Staged: "fg:ansigreen",
+    FileStatusCategory.Unstaged: "fg:ansiyellow",
+    FileStatusCategory.Untracked: "fg:ansibrightblack",
+}
 
 @dataclass
 class PickerFile:
     """A file shown in the picker, with its git status category."""
-
     path: str
-    category: str  # "staged" | "unstaged" | "untracked"
+    category: FileStatusCategory
 
 
 @dataclass
 class PickerResult:
     """Result returned by CommitPicker.run()."""
-
     selected_files: list[PickerFile]
     message: str | None  # None or "" → generate with LLM
 
@@ -63,13 +61,20 @@ class CommitPicker:
     user presses I on a file — the caller is responsible for opening the pager.
     """
 
+    _files: list[PickerFile]
+    _view_diff_fn: Callable[[str, str], None]
+    _pt_input: Any
+    _pt_output: Any
+    _state: _State
+    _message_field: TextArea
+
     def __init__(
         self,
         files: list[PickerFile],
         view_diff_fn: Callable[[str, str], None],
         *,
-        input=None,  # noqa: A002
-        output=None,
+        input: Any = None,  # noqa: A002
+        output: Any = None,
     ) -> None:
         self._files = files
         self._view_diff_fn = view_diff_fn
@@ -94,7 +99,7 @@ class CommitPicker:
         s = self._state
         kb = self._build_key_bindings()
 
-        def get_container():
+        def get_container() -> HSplit | Window:
             if s.screen == "confirm":
                 return HSplit([
                     Window(
@@ -138,27 +143,27 @@ class CommitPicker:
         s = self._state
 
         @Condition
-        def in_picker():
+        def in_picker() -> bool:
             return s.screen == "picker"
 
         @Condition
-        def in_confirm():
+        def in_confirm() -> bool:
             return s.screen == "confirm"
 
-        def _reset():
+        def _reset() -> None:
             s.last_key = ""
 
         # -- Picker: navigation --
 
         @kb.add("up", filter=in_picker)
         @kb.add("k", filter=in_picker)
-        def move_up(event):
+        def move_up(event: Any) -> None:
             _reset()
             s.cursor = max(0, s.cursor - 1)
 
         @kb.add("down", filter=in_picker)
         @kb.add("j", filter=in_picker)
-        def move_down(event):
+        def move_down(event: Any) -> None:
             _reset()
             s.cursor = min(len(s.files) - 1, s.cursor + 1)
 
@@ -166,7 +171,7 @@ class CommitPicker:
 
         @kb.add("space", filter=in_picker)
         @kb.add("enter", filter=in_picker)
-        def toggle_file(event):
+        def toggle_file(event: Any) -> None:
             _reset()
             if s.cursor in s.selected:
                 s.selected.discard(s.cursor)
@@ -175,7 +180,7 @@ class CommitPicker:
 
         @kb.add("a", filter=in_picker)
         @kb.add("A", filter=in_picker)
-        def toggle_all(event):
+        def toggle_all(event: Any) -> None:
             _reset()
             all_idx = set(range(len(s.files)))
             s.selected = set() if s.selected == all_idx else all_idx
@@ -184,7 +189,7 @@ class CommitPicker:
 
         @kb.add("i", filter=in_picker)
         @kb.add("I", filter=in_picker)
-        def show_diff(event):
+        def show_diff(event: Any) -> None:
             _reset()
             pf = s.files[s.cursor]
             self._view_diff_fn(pf.path, pf.category)
@@ -193,21 +198,21 @@ class CommitPicker:
 
         @kb.add("right", filter=in_picker)
         @kb.add("tab", filter=in_picker, eager=True)
-        def go_to_confirm(event):
+        def go_to_confirm(event: Any) -> None:
             _reset()
             s.screen = "confirm"
             event.app.layout.focus(self._message_field)
 
         @kb.add("left", filter=in_confirm)
         @kb.add("tab", filter=in_confirm, eager=True)
-        def go_to_picker(event):
+        def go_to_picker(event: Any) -> None:
             _reset()
             s.screen = "picker"
 
         # -- Confirm: submit --
 
         @kb.add("enter", filter=in_confirm, eager=True)
-        def do_commit(event):
+        def do_commit(event: Any) -> None:
             _reset()
             s.confirmed = True
             event.app.exit()
@@ -215,7 +220,7 @@ class CommitPicker:
         # -- Double-key abort --
 
         @kb.add("escape", filter=in_picker | in_confirm, eager=True)
-        def handle_escape(event):
+        def handle_escape(event: Any) -> None:
             if s.last_key == "escape":
                 s.aborted = True
                 event.app.exit()
@@ -223,7 +228,7 @@ class CommitPicker:
                 s.last_key = "escape"
 
         @kb.add("c-c")
-        def handle_ctrl_c(event):
+        def handle_ctrl_c(event: Any) -> None:
             if s.last_key == "c-c":
                 s.aborted = True
                 event.app.exit()
@@ -245,11 +250,11 @@ class CommitPicker:
         out.append(("bold", f" Select files to commit  ({n_sel}/{n_tot} selected)\n"))
         out.append(("", " " + "─" * 53 + "\n"))
 
-        current_category: str | None = None
+        current_category: FileStatusCategory | None = None
         for i, pf in enumerate(s.files):
             if pf.category != current_category:
                 current_category = pf.category
-                label = _CATEGORY_LABEL.get(pf.category, pf.category.capitalize())
+                label = pf.category.value.capitalize()
                 out.append(("bold", f" {label}\n"))
 
             is_cursor = i == s.cursor
@@ -265,7 +270,7 @@ class CommitPicker:
             elif is_selected:
                 style = cat_style
             else:
-                style = "fg:ansibrightblack" if pf.category == "untracked" else ""
+                style = "fg:ansibrightblack" if pf.category == FileStatusCategory.Untracked else ""
 
             out += [
                 ("", f"   {cursor_mark} "),

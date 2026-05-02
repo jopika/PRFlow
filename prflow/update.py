@@ -8,6 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable, cast
 from urllib import error, request
 
 import click
@@ -15,10 +16,12 @@ import yaml
 from rich.console import Console
 
 from prflow import __version__
+from prflow.types import Config, State
 
 console = Console()
 
 STATE_FILE = ".prflow-state.yaml"
+FetchRelease = Callable[[str], tuple[str | None, str | None, str | None]]
 
 
 @dataclass
@@ -44,20 +47,20 @@ def state_path() -> Path:
     return Path.home() / STATE_FILE
 
 
-def load_state() -> dict:
+def load_state() -> State:
     """Load update state, returning {} for missing or invalid files."""
     path = state_path()
     try:
         with open(path) as f:
-            data = yaml.safe_load(f)
+            data: object = yaml.safe_load(f)
     except OSError:
         return {}
     except yaml.YAMLError:
         return {}
-    return data if isinstance(data, dict) else {}
+    return cast(State, data) if isinstance(data, dict) else {}
 
 
-def save_state(state: dict) -> None:
+def save_state(state: State) -> None:
     """Persist update state. Errors are ignored to keep checks non-blocking."""
     path = state_path()
     try:
@@ -112,7 +115,7 @@ def get_latest_release_info(repo: str, timeout: float = 2.0) -> ReleaseInfo:
     req = request.Request(url, headers=headers)
     try:
         with request.urlopen(req, timeout=timeout) as response:
-            payload = json.load(response)
+            payload_raw: object = json.load(response)
     except error.HTTPError as exc:
         return ReleaseInfo(error=f"HTTP {exc.code}")
     except error.URLError as exc:
@@ -125,7 +128,20 @@ def get_latest_release_info(repo: str, timeout: float = 2.0) -> ReleaseInfo:
     except json.JSONDecodeError:
         return ReleaseInfo(error="invalid response")
 
-    latest_version = normalize_version(payload.get("tag_name") or payload.get("name"))
+    if not isinstance(payload_raw, dict):
+        return ReleaseInfo(error="invalid response")
+    payload = cast(dict[str, object], payload_raw)
+
+    tag_name = payload.get("tag_name")
+    release_name = payload.get("name")
+    version_source = (
+        tag_name
+        if isinstance(tag_name, str)
+        else release_name
+        if isinstance(release_name, str)
+        else None
+    )
+    latest_version = normalize_version(version_source)
     release_url = payload.get("html_url")
     if not isinstance(release_url, str):
         release_url = None
@@ -154,7 +170,7 @@ def get_latest_release(repo: str, timeout: float = 2.0) -> tuple[str | None, str
     return info.latest_version, info.release_url, info.error
 
 
-def clear_seen_update(state: dict) -> dict:
+def clear_seen_update(state: State) -> State:
     """Remove reminder state once the user is current again."""
     for key in (
         "latest_seen_version",
@@ -162,11 +178,11 @@ def clear_seen_update(state: dict) -> dict:
         "last_prompted_version",
         "last_declined_version",
     ):
-        state.pop(key, None)
+        _ = state.pop(key, None)
     return state
 
 
-def is_check_due(state: dict, interval_hours: int, now: datetime | None = None) -> bool:
+def is_check_due(state: State, interval_hours: int, now: datetime | None = None) -> bool:
     """Return True when the throttled check window has elapsed."""
     timestamp = state.get("last_checked_at")
     if not isinstance(timestamp, str):
@@ -184,17 +200,18 @@ def is_check_due(state: dict, interval_hours: int, now: datetime | None = None) 
     return now - last_checked >= timedelta(hours=interval_hours)
 
 
-def _updates_config(config: dict) -> dict:
-    return config.get("updates", {})
+def _updates_config(config: Config) -> State:
+    updates_config = config.get("updates", {})
+    return cast(State, updates_config) if isinstance(updates_config, dict) else {}
 
 
 def check_for_updates(
-    config: dict,
+    config: Config,
     *,
     force: bool = False,
     now: datetime | None = None,
-    fetch_release=get_latest_release,
-) -> tuple[UpdateStatus, dict]:
+    fetch_release: FetchRelease = get_latest_release,
+) -> tuple[UpdateStatus, State]:
     """Check GitHub Releases for a newer prflow version."""
     state = load_state()
     updates_cfg = _updates_config(config)
@@ -204,12 +221,15 @@ def check_for_updates(
     if not updates_cfg.get("enabled", True) and not force:
         return status, state
 
-    repo = updates_cfg.get("github_repo", "jopika/PRFlow")
-    interval_hours = int(updates_cfg.get("check_interval_hours", 24))
+    repo_raw = updates_cfg.get("github_repo", "jopika/PRFlow")
+    repo = repo_raw if isinstance(repo_raw, str) else "jopika/PRFlow"
+    interval_raw = updates_cfg.get("check_interval_hours", 24)
+    interval_hours = int(interval_raw) if isinstance(interval_raw, int | str) else 24
     now = now or datetime.now(timezone.utc)
     mutated = False
 
-    latest_version = normalize_version(state.get("latest_seen_version"))
+    latest_seen_version = state.get("latest_seen_version")
+    latest_version = normalize_version(latest_seen_version if isinstance(latest_seen_version, str) else None)
     release_url = state.get("latest_release_url")
     if not isinstance(release_url, str):
         release_url = None
@@ -225,7 +245,7 @@ def check_for_updates(
             if release_url:
                 state["latest_release_url"] = release_url
             else:
-                state.pop("latest_release_url", None)
+                _ = state.pop("latest_release_url", None)
             mutated = True
         else:
             status.error = fetch_error or "Unable to check for updates right now."
@@ -235,7 +255,7 @@ def check_for_updates(
     status.update_available = is_newer_version(latest_version, current_version)
 
     if not status.update_available and latest_version is not None:
-        clear_seen_update(state)
+        _ = clear_seen_update(state)
         mutated = True
 
     if mutated:
@@ -259,7 +279,7 @@ def show_update_banner(status: UpdateStatus) -> None:
     console.print(_banner_text(status))
 
 
-def run_upgrade(config: dict) -> bool:
+def run_upgrade(config: Config) -> bool:
     """Install the latest GitHub Release wheel with pipx."""
     if shutil.which("pipx") is None:
         console.print(
@@ -268,7 +288,8 @@ def run_upgrade(config: dict) -> bool:
         )
         return False
 
-    repo = _updates_config(config).get("github_repo", "jopika/PRFlow")
+    repo_raw = _updates_config(config).get("github_repo", "jopika/PRFlow")
+    repo = repo_raw if isinstance(repo_raw, str) else "jopika/PRFlow"
     release_info = get_latest_release_info(repo)
     if release_info.error:
         console.print(
@@ -298,7 +319,7 @@ def run_upgrade(config: dict) -> bool:
     return False
 
 
-def handle_manual_update(config: dict) -> None:
+def handle_manual_update(config: Config) -> None:
     """Handle the explicit `prflow --update` flow."""
     status, state = check_for_updates(config, force=True)
 
@@ -320,18 +341,19 @@ def handle_manual_update(config: dict) -> None:
 
     if click.confirm("Upgrade now from Github Release?", default=False):
         if run_upgrade(config):
-            clear_seen_update(state)
+            _ = clear_seen_update(state)
             save_state(state)
 
 
-def handle_startup_update(config: dict, interactive: bool) -> None:
+def handle_startup_update(config: Config, interactive: bool) -> None:
     """Best-effort update check for normal CLI startup."""
     updates_cfg = _updates_config(config)
     if not updates_cfg.get("enabled", True):
         return
 
     state = load_state()
-    interval_hours = int(updates_cfg.get("check_interval_hours", 24))
+    interval_raw = updates_cfg.get("check_interval_hours", 24)
+    interval_hours = int(interval_raw) if isinstance(interval_raw, int | str) else 24
     check_announced = is_check_due(state, interval_hours)
     if check_announced:
         console.print("[dim]Checking for prflow updates...[/dim]")
@@ -355,7 +377,7 @@ def handle_startup_update(config: dict, interactive: bool) -> None:
 
         if click.confirm("Upgrade now with pipx?", default=False):
             if run_upgrade(config):
-                clear_seen_update(state)
+                _ = clear_seen_update(state)
                 save_state(state)
             return
 

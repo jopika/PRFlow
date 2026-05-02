@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from prflow.types import TemplateSection
+
 
 def discover_template(repo_root: Path) -> str | None:
     """Find and read the PR template, returning its content or None."""
@@ -29,13 +31,13 @@ def discover_template(repo_root: Path) -> str | None:
     return None
 
 
-def parse_sections(template: str) -> list[dict[str, str]]:
+def parse_sections(template: str) -> list[TemplateSection]:
     """Split a PR template by ## headers into sections.
 
     Returns a list of dicts: [{"header": "Summary", "body": "..."}]
     Content before the first ## header is captured with header="".
     """
-    sections = []
+    sections: list[TemplateSection] = []
     current_header = ""
     current_body_lines: list[str] = []
 
@@ -59,7 +61,7 @@ def parse_sections(template: str) -> list[dict[str, str]]:
     return sections
 
 
-def format_sections_for_prompt(sections: list[dict[str, str]]) -> str:
+def format_sections_for_prompt(sections: list[TemplateSection]) -> str:
     """Format parsed sections into a string for the LLM prompt."""
     lines = ["The PR template has these sections to fill:"]
     for section in sections:

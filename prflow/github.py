@@ -6,18 +6,21 @@ import json
 import os
 import subprocess
 import tempfile
+from collections.abc import Generator
 from contextlib import contextmanager
+from typing import cast
 
 import click
 
 from prflow import git
+from prflow.types import ExistingPR
 
 
 class GitHubError(Exception):
     """Raised when a gh CLI operation fails."""
 
 
-def _run_gh(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
+def _run_gh(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     """Run a gh command and return the result."""
     result = subprocess.run(["gh"] + args, capture_output=True, text=True)
     if check and result.returncode != 0:
@@ -25,7 +28,7 @@ def _run_gh(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return result
 
 
-def get_existing_pr_details(branch: str) -> dict | None:
+def get_existing_pr_details(branch: str) -> ExistingPR | None:
     """Fetch existing PR metadata including body and title. Returns dict or None."""
     result = _run_gh(
         ["pr", "list", "--head", branch,
@@ -37,14 +40,16 @@ def get_existing_pr_details(branch: str) -> dict | None:
         return None
 
     try:
-        prs = json.loads(result.stdout)
-        return prs[0] if prs else None
+        prs: object = json.loads(result.stdout)
+        if not isinstance(prs, list) or not prs or not isinstance(prs[0], dict):
+            return None
+        return cast(ExistingPR, prs[0])
     except (json.JSONDecodeError, IndexError):
         return None
 
 
 @contextmanager
-def _body_tempfile(body: str):
+def _body_tempfile(body: str) -> Generator[str]:
     """Write body to a temp file and yield its path, cleaning up on exit."""
     fd, path = tempfile.mkstemp(suffix=".md")
     try:
@@ -81,7 +86,7 @@ def push_and_create_or_update(
     draft: bool = True,
     dry_run: bool = False,
     interactive: bool = True,
-    existing_pr: dict | None = None,
+    existing_pr: ExistingPR | None = None,
 ) -> str:
     """Orchestrate: push -> create or update PR.
 
@@ -101,8 +106,12 @@ def push_and_create_or_update(
                 abort=True,
             )
         git.push_branch(branch)
-        update_pr(existing_pr["number"], title, body)
-        return existing_pr["url"]
+        number = existing_pr["number"]
+        url = existing_pr["url"]
+        if not isinstance(number, int) or not isinstance(url, str):
+            raise GitHubError("Existing PR metadata is missing number or URL")
+        update_pr(number, title, body)
+        return url
     else:
         git.push_branch(branch)
         return create_pr(title, body, base, draft)

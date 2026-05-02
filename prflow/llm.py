@@ -9,9 +9,9 @@ import shlex
 import subprocess
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import cast
 
 from rich.console import Console
-from rich.status import Status
 
 from prflow.prompts import (
     COMMIT_MESSAGE_SYSTEM_PROMPT,
@@ -24,6 +24,7 @@ from prflow.prompts import (
     UPDATE_SYSTEM_PROMPT,
     UPDATE_USER_PROMPT_TEMPLATE,
 )
+from prflow.types import Config, JsonObject
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -45,9 +46,9 @@ class ClaudeBackend(LLMBackend):
     """Calls Claude CLI via subprocess with stdin piping."""
 
     def __init__(self, model: str | None = None, effort: str = "medium", timeout: int = 120):
-        self.model = model
-        self.effort = effort
-        self.timeout = timeout
+        self.model: str | None = model
+        self.effort: str = effort
+        self.timeout: int = timeout
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         cmd = ["claude", "-p", "--append-system-prompt", system_prompt]
@@ -83,8 +84,8 @@ class CustomBackend(LLMBackend):
     """Calls an arbitrary command from config."""
 
     def __init__(self, command: str, timeout: int = 120):
-        self.command = command
-        self.timeout = timeout
+        self.command: str = command
+        self.timeout: int = timeout
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
@@ -105,36 +106,43 @@ class CustomBackend(LLMBackend):
         return result.stdout
 
 
-def get_backend(config: dict) -> LLMBackend:
+def get_backend(config: Config) -> LLMBackend:
     """Factory: return the appropriate LLM backend."""
-    llm_config = config.get("llm", {})
-    backend_name = llm_config.get("backend", "claude")
-    timeout = llm_config.get("timeout", 120)
+    llm_config_raw = config.get("llm", {})
+    llm_config = cast(dict[str, object], llm_config_raw) if isinstance(llm_config_raw, dict) else {}
+    backend_name_raw = llm_config.get("backend", "claude")
+    backend_name = backend_name_raw if isinstance(backend_name_raw, str) else "claude"
+    timeout_raw = llm_config.get("timeout", 120)
+    timeout = timeout_raw if isinstance(timeout_raw, int) else 120
 
     if backend_name == "claude":
+        model_raw = llm_config.get("model")
+        effort_raw = llm_config.get("effort", "medium")
         return ClaudeBackend(
-            model=llm_config.get("model"),
-            effort=llm_config.get("effort", "medium"),
+            model=model_raw if isinstance(model_raw, str) else None,
+            effort=effort_raw if isinstance(effort_raw, str) else "medium",
             timeout=timeout,
         )
     elif backend_name == "openai":
         return OpenAIBackend()
     elif backend_name == "custom":
-        command = llm_config.get("command")
-        if not command:
+        command_raw = llm_config.get("command")
+        if not isinstance(command_raw, str) or not command_raw:
             raise ValueError("llm.command must be set for custom backend")
-        return CustomBackend(command=command, timeout=timeout)
+        return CustomBackend(command=command_raw, timeout=timeout)
     else:
         raise ValueError(f"Unknown LLM backend: {backend_name}")
 
 
-def extract_json(raw: str) -> dict:
+def extract_json(raw: str) -> JsonObject:
     """Extract a JSON object from LLM output, handling fences and commentary."""
     text = raw.strip()
 
     # 1. Try direct parse
     try:
-        return json.loads(text)
+        parsed: object = json.loads(text)
+        if isinstance(parsed, dict):
+            return cast(JsonObject, parsed)
     except json.JSONDecodeError:
         pass
 
@@ -142,7 +150,9 @@ def extract_json(raw: str) -> dict:
     fence_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
     if fence_match:
         try:
-            return json.loads(fence_match.group(1).strip())
+            parsed = json.loads(fence_match.group(1).strip())
+            if isinstance(parsed, dict):
+                return cast(JsonObject, parsed)
         except json.JSONDecodeError:
             pass
 
@@ -151,7 +161,9 @@ def extract_json(raw: str) -> dict:
     last_brace = text.rfind("}")
     if first_brace != -1 and last_brace > first_brace:
         try:
-            return json.loads(text[first_brace : last_brace + 1])
+            parsed = json.loads(text[first_brace : last_brace + 1])
+            if isinstance(parsed, dict):
+                return cast(JsonObject, parsed)
         except json.JSONDecodeError:
             pass
 
@@ -192,13 +204,13 @@ def chunk_file_diffs(file_diffs: dict[str, str], group_size: int = 10) -> list[d
 
 
 def generate_pr_content(
-    config: dict,
+    config: Config,
     commits: list[tuple[str, str]],
     diff_stat: str,
     jira_snippet: str = "",
     template_section: str = "",
     seed_section: str = "",
-) -> dict:
+) -> JsonObject:
     """Generate PR title and body using default (stat-only) mode."""
     backend = get_backend(config)
 
@@ -217,16 +229,18 @@ def generate_pr_content(
 
 
 def generate_pr_content_full_diff(
-    config: dict,
+    config: Config,
     commits: list[tuple[str, str]],
     file_diffs: dict[str, str],
     jira_snippet: str = "",
     template_section: str = "",
     seed_section: str = "",
-) -> dict:
+) -> JsonObject:
     """Generate PR content using full-diff multi-agent pipeline."""
-    llm_config = config.get("llm", {})
-    group_size = llm_config.get("full_diff_group_size", 10)
+    llm_config_raw = config.get("llm", {})
+    llm_config = cast(dict[str, object], llm_config_raw) if isinstance(llm_config_raw, dict) else {}
+    group_size_raw = llm_config.get("full_diff_group_size", 10)
+    group_size = group_size_raw if isinstance(group_size_raw, int) else 10
     backend = get_backend(config)
 
     chunks = chunk_file_diffs(file_diffs, group_size)
@@ -273,7 +287,7 @@ def generate_pr_content_full_diff(
     return extract_json(raw)
 
 
-def generate_commit_message(config: dict, diff: str, file_list: list[str]) -> str:
+def generate_commit_message(config: Config, diff: str, file_list: list[str]) -> str:
     """Generate a single-line commit message from staged diff.
 
     Returns a plain string (no JSON parsing). Raises LLMError on failure.
@@ -286,14 +300,14 @@ def generate_commit_message(config: dict, diff: str, file_list: list[str]) -> st
 
 
 def generate_pr_update(
-    config: dict,
+    config: Config,
     existing_title: str,
     existing_body: str,
     commits: list[tuple[str, str]],
     diff_stat: str,
     jira_snippet: str = "",
     seed_section: str = "",
-) -> dict:
+) -> JsonObject:
     """Generate updated PR content based on existing body + all commits."""
     backend = get_backend(config)
 

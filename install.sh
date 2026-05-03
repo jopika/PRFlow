@@ -56,6 +56,18 @@ require_command() {
   fi
 }
 
+check_python_version() {
+  local version
+  version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  local major minor
+  IFS='.' read -r major minor <<< "$version"
+  if (( major < 3 || (major == 3 && minor < 14) )); then
+    echo "Error: prflow requires Python 3.14 or newer (found Python $version)."
+    echo "Please upgrade Python first: https://www.python.org/downloads/"
+    exit 1
+  fi
+}
+
 detect_install_target() {
   if [[ -f "$SCRIPT_DIR/pyproject.toml" ]]; then
     INSTALL_TARGET="$SCRIPT_DIR"
@@ -63,7 +75,8 @@ detect_install_target() {
   fi
 
   require_command "curl" "curl not found. Install curl first, then rerun this installer."
-  require_command "python3" "python3 not found. Install Python 3.9 or newer first, then rerun this installer."
+  require_command "python3" "python3 not found. Install Python 3.14 or newer first, then rerun this installer."
+  check_python_version
 
   TMP_DIR="$(mktemp -d)"
   local api_url="https://api.github.com/repos/${REPO_SLUG}/releases/latest"

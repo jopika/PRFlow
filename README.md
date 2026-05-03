@@ -4,7 +4,7 @@ A CLI tool that automates the full PR preparation flow: branch safety check, reb
 
 ## Requirements
 
-- Python ≥ 3.9
+- Python ≥ 3.14
 - [`gh`](https://cli.github.com/) — GitHub CLI, authenticated
 - [`claude`](https://claude.ai/code) CLI (default LLM backend)
 - `git`
@@ -16,7 +16,7 @@ The primary install path is a single script that downloads the latest GitHub Rel
 
 ### Step 1: Install prerequisites
 
-- Python 3.9 or newer
+- Python 3.14 or newer
 - [`pipx`](https://pipx.pypa.io/)
 - `curl`
 - [`gh`](https://cli.github.com/) authenticated with GitHub

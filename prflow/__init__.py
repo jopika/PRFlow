@@ -6,10 +6,7 @@ from typing import cast
 
 
 def _read_version_from_pyproject() -> str:
-    try:
-        import tomllib
-    except ModuleNotFoundError:  # pragma: no cover
-        import tomli as tomllib  # pyright: ignore[reportMissingImports]
+    import tomllib
 
     pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
     data = tomllib.loads(pyproject_path.read_text())

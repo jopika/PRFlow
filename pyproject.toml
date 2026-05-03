@@ -33,16 +33,13 @@ venv = ".venv"
 reportExplicitAny = false
 reportAny = false
 # Environment-specific overrides
-executionEnvironments = [
-    {
-        root = "tests",
-        reportUnusedVariable = false,
-        reportUnknownArgumentType = false,
-        reportUnknownMemberType = false,
-        reportUnknownParameterType = false,
-        reportUnknownVariableType = false,
-        reportUnusedCallResult = false,
-        reportUnannotatedClassAttribute = false,
-        reportMissingParameterType = false,
-    }
-]
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportUnusedVariable = false
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnusedCallResult = false
+reportUnannotatedClassAttribute = false
+reportMissingParameterType = false

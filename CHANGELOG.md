@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.0](https://github.com/jopika/PRFlow/compare/v0.3.3...v1.0.0) (2026-05-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* Older versions of Python are no longer supported due to EOL
+
+### Bug Fixes
+
+* Failing unit tests due to enum strings ([c43448e](https://github.com/jopika/PRFlow/commit/c43448e1e73e4c0955e5475b620b258d03da9b1f))
+* Fix issues with parameters not being managed properly ([8e5172f](https://github.com/jopika/PRFlow/commit/8e5172fd51377126287745c11ac0a3bfb4dfb306))
+* toml inline table causing build failures ([cacef61](https://github.com/jopika/PRFlow/commit/cacef61b2e82fea495cd4942f2ab03f0f7dbc57d))
+
+
+### Miscellaneous Chores
+
+* upgrade to python 3.14 ([83f5f55](https://github.com/jopika/PRFlow/commit/83f5f558d5dfa3b9094cf3bdd46ceb4f7e8a5567))
+
 ## [0.3.3](https://github.com/jopika/PRFlow/compare/v0.3.2...v0.3.3) (2026-04-09)
 
 

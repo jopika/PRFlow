@@ -31,7 +31,7 @@ def edit_body_in_editor(body: str) -> str:
     fd, tmppath = tempfile.mkstemp(suffix=".md")
     try:
         with os.fdopen(fd, "w") as f:
-            f.write(body)
+            _ = f.write(body)
         result = subprocess.run([editor, tmppath])
         if result.returncode != 0:
             raise click.ClickException(f"Editor exited with code {result.returncode}")
@@ -71,16 +71,16 @@ def display_body_diff(old_body: str, new_body: str) -> None:
     console.rule()
 
 
-def _view_diff(path: str, category: str) -> None:
+def _view_diff(path: str, category: FileStatusCategory) -> None:
     """Open a pager to show the diff or content of a file."""
     import subprocess as _sp
 
-    if category == "staged":
+    if category == FileStatusCategory.Staged:
         diff_cmd = ["git", "diff", "--cached", "--color=always", "--", path]
-    elif category == "unstaged":
+    elif category == FileStatusCategory.Unstaged:
         diff_cmd = ["git", "diff", "--color=always", "--", path]
     else:  # untracked — no diff, show raw file
-        _sp.run(["less", path])
+        _ = _sp.run(["less", path])
         return
 
     diff_proc = _sp.Popen(diff_cmd, stdout=_sp.PIPE)
@@ -88,15 +88,15 @@ def _view_diff(path: str, category: str) -> None:
         raise click.ClickException("Could not open git diff output pipe")
     less_proc = _sp.Popen(["less", "-R"], stdin=diff_proc.stdout)
     diff_proc.stdout.close()
-    less_proc.wait()
-    diff_proc.wait()
+    _ = less_proc.wait()
+    _ = diff_proc.wait()
 
 
 def _do_commit_flow(dirty: DirtyFiles, config: Config) -> None:
     """Interactive TUI file picker → commit message → git commit."""
     files: list[PickerFile] = []
     for category in FileStatusCategory:
-        for path in dirty.get(category, []):
+        for path in dirty.get(category.value, []):
             files.append(PickerFile(path=path, category=category))
 
     picker = CommitPicker(files=files, view_diff_fn=_view_diff)
@@ -107,7 +107,7 @@ def _do_commit_flow(dirty: DirtyFiles, config: Config) -> None:
         return
 
     # Stage any selected files that aren't already staged
-    to_stage = [pf.path for pf in result.selected_files if pf.category != "staged"]
+    to_stage = [pf.path for pf in result.selected_files if pf.category != FileStatusCategory.Staged]
     if to_stage:
         git.stage_files(to_stage)
 

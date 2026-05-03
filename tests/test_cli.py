@@ -14,7 +14,7 @@ from prflow import __version__
 from prflow.cli import _do_commit_flow, _handle_dirty_files, display_body_diff, main
 from prflow.git import GitError
 from prflow.llm import LLMError
-from prflow.picker import PickerFile, PickerResult
+from prflow.picker import FileStatusCategory, PickerFile, PickerResult
 
 
 class TestCli:
@@ -88,7 +88,7 @@ class TestHandleDirtyFiles:
 
     def test_no_op_when_clean(self, mocker):
         mock_console = mocker.patch("prflow.cli.console")
-        _handle_dirty_files({"staged": [], "unstaged": [], "untracked": []}, True, self._config)
+        _ = _handle_dirty_files({"staged": [], "unstaged": [], "untracked": []}, True, self._config)
         mock_console.print.assert_not_called()
 
     def test_staged_table_shown(self, mocker):
@@ -145,7 +145,7 @@ class TestHandleDirtyFiles:
         _handle_dirty_files({"staged": [], "unstaged": ["b.py"], "untracked": []}, True, self._config)
 
 
-def _pf(path: str, category: str = "staged") -> PickerFile:
+def _pf(path: str, category: FileStatusCategory = FileStatusCategory.Staged) -> PickerFile:
     return PickerFile(path=path, category=category)
 
 
@@ -204,7 +204,7 @@ class TestDoCommitFlow:
     def test_unstaged_files_staged_before_commit(self, mocker):
         mocker.patch("prflow.cli.console")
         _mock_picker(mocker, PickerResult(
-            selected_files=[_pf("a.py", "staged"), _pf("b.py", "unstaged")],
+            selected_files=[_pf("a.py", FileStatusCategory.Staged), _pf("b.py", FileStatusCategory.Unstaged)],
             message="Fix bug",
         ))
         mock_stage = mocker.patch("prflow.cli.git.stage_files")
@@ -216,7 +216,7 @@ class TestDoCommitFlow:
 
     def test_staged_files_not_re_staged(self, mocker):
         mocker.patch("prflow.cli.console")
-        _mock_picker(mocker, PickerResult(selected_files=[_pf("a.py", "staged")], message="Fix bug"))
+        _mock_picker(mocker, PickerResult(selected_files=[_pf("a.py", FileStatusCategory.Staged)], message="Fix bug"))
         mock_stage = mocker.patch("prflow.cli.git.stage_files")
         mocker.patch("prflow.cli.git.commit")
 

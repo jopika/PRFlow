@@ -37,7 +37,7 @@ def is_protected_branch(branch: str, protected: list[str]) -> bool:
 def prompt_create_branch() -> str:
     """Interactively ask for a new branch name and check it out."""
     name = cast(str, click.prompt("Enter new branch name"))
-    _run(["git", "checkout", "-b", name])
+    _ = _run(["git", "checkout", "-b", name])
     return name
 
 
@@ -61,7 +61,7 @@ def get_base_branch(config: Config) -> str:
 
 def fetch_and_rebase(base: str) -> None:
     """Fetch origin and rebase onto origin/<base>."""
-    _run(["git", "fetch", "origin"])
+    _ = _run(["git", "fetch", "origin"])
     result = subprocess.run(
         ["git", "rebase", f"origin/{base}"],
         capture_output=True,
@@ -69,7 +69,7 @@ def fetch_and_rebase(base: str) -> None:
     )
     if result.returncode != 0:
         # Abort the failed rebase so we don't leave the repo in a bad state
-        subprocess.run(["git", "rebase", "--abort"], capture_output=True)
+        _ = subprocess.run(["git", "rebase", "--abort"], capture_output=True)
         raise GitError(f"Rebase onto origin/{base} failed. Resolve conflicts manually.\n{result.stderr.strip()}")
 
 
@@ -86,7 +86,7 @@ def get_commits_since_base(base: str) -> list[tuple[str, str]]:
 
 def push_branch(branch: str) -> None:
     """Push the branch to origin with --set-upstream."""
-    _run(["git", "push", "--set-upstream", "origin", branch])
+    _ = _run(["git", "push", "--set-upstream", "origin", branch])
 
 
 def get_dirty_files() -> DirtyFiles:
@@ -121,7 +121,7 @@ def stage_files(files: list[str]) -> None:
     """Stage the given files via git add."""
     if not files:
         return
-    _run(["git", "add", "--"] + files)
+    _ = _run(["git", "add", "--"] + files)
 
 
 def get_diff_for_staged_files(files: list[str]) -> str:
@@ -141,7 +141,7 @@ def commit(message: str, files: list[str] | None = None) -> None:
     cmd = ["git", "commit", "-m", message]
     if files:
         cmd += ["--"] + files
-    _run(cmd)
+    _ = _run(cmd)
 
 
 def get_changed_files(base: str) -> list[str]:

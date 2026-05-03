@@ -62,7 +62,7 @@ class CommitPicker:
     """
 
     _files: list[PickerFile]
-    _view_diff_fn: Callable[[str, str], None]
+    _view_diff_fn: Callable[[str, FileStatusCategory], None]
     _pt_input: Any
     _pt_output: Any
     _state: _State
@@ -71,7 +71,7 @@ class CommitPicker:
     def __init__(
         self,
         files: list[PickerFile],
-        view_diff_fn: Callable[[str, str], None],
+        view_diff_fn: Callable[[str, FileStatusCategory], None],
         *,
         input: Any = None,  # noqa: A002
         output: Any = None,
@@ -192,7 +192,7 @@ class CommitPicker:
         def show_diff(event: Any) -> None:
             _reset()
             pf = s.files[s.cursor]
-            self._view_diff_fn(pf.path, pf.category.value)
+            self._view_diff_fn(pf.path, pf.category)
 
         # -- Navigate picker ↔ confirm --
 

@@ -193,31 +193,31 @@ class TestAbort:
 
 class TestDiffView:
     def test_i_calls_view_diff_fn(self):
-        calls: list[tuple[str, str]] = []
+        calls: list[tuple[str, FileStatusCategory]] = []
 
-        def record(path: str, category: str) -> None:
+        def record(path: str, category: FileStatusCategory) -> None:
             calls.append((path, category))
 
         run_picker(_staged("a.py"), "i" + SPACE + RIGHT + ENTER, view_diff_fn=record)
-        assert ("a.py", "staged") in calls
+        assert ("a.py", FileStatusCategory.Staged) in calls
 
     def test_diff_called_for_highlighted_file(self):
-        calls: list[tuple[str, str]] = []
+        calls: list[tuple[str, FileStatusCategory]] = []
 
-        def record(path: str, category: str) -> None:
+        def record(path: str, category: FileStatusCategory) -> None:
             calls.append((path, category))
 
         run_picker(_staged("a.py", "b.py"), DOWN + "i" + SPACE + RIGHT + ENTER, view_diff_fn=record)
-        assert calls[0] == ("b.py", "staged")
+        assert calls[0] == ("b.py", FileStatusCategory.Staged)
 
     def test_diff_passes_correct_category(self):
-        calls: list[tuple[str, str]] = []
+        calls: list[tuple[str, FileStatusCategory]] = []
 
-        def record(path: str, category: str) -> None:
+        def record(path: str, category: FileStatusCategory) -> None:
             calls.append((path, category))
 
         run_picker(_mixed(), DOWN + "i" + SPACE + RIGHT + ENTER, view_diff_fn=record)
-        assert calls[0] == ("b.py", "unstaged")
+        assert calls[0] == ("b.py", FileStatusCategory.Unstaged)
 
 
 class TestCommitMessage:

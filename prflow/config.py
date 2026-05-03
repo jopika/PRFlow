@@ -14,7 +14,7 @@ DEFAULTS: Config = {
     "llm": {
         "backend": "claude",
         "model": None,
-        "effort": "medium",             # low | medium | high | max
+        "effort": "low",             # low | medium | high | max
         "command": None,
         "full_diff_group_size": 10,
         "timeout": 120,

@@ -9,7 +9,7 @@ import shlex
 import subprocess
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import cast
+from typing import cast, override
 
 from rich.console import Console
 
@@ -50,6 +50,7 @@ class ClaudeBackend(LLMBackend):
         self.effort: str = effort
         self.timeout: int = timeout
 
+    @override
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         cmd = ["claude", "-p", "--append-system-prompt", system_prompt]
         if self.model:
@@ -76,6 +77,7 @@ class ClaudeBackend(LLMBackend):
 class OpenAIBackend(LLMBackend):
     """OpenAI backend — stub for future implementation."""
 
+    @override
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         raise NotImplementedError("OpenAI backend not yet implemented.")
 
@@ -87,6 +89,7 @@ class CustomBackend(LLMBackend):
         self.command: str = command
         self.timeout: int = timeout
 
+    @override
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         try:
@@ -123,7 +126,7 @@ def get_backend(config: Config) -> LLMBackend:
             effort=effort_raw if isinstance(effort_raw, str) else "medium",
             timeout=timeout,
         )
-    elif backend_name == "openai":
+    elif backend_name == "openai" or backend_name == "codex":
         return OpenAIBackend()
     elif backend_name == "custom":
         command_raw = llm_config.get("command")

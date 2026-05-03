@@ -192,7 +192,7 @@ class CommitPicker:
         def show_diff(event: Any) -> None:
             _reset()
             pf = s.files[s.cursor]
-            self._view_diff_fn(pf.path, pf.category)
+            self._view_diff_fn(pf.path, pf.category.value)
 
         # -- Navigate picker ↔ confirm --
 

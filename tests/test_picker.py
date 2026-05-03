@@ -7,7 +7,7 @@ import pytest
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from prflow.picker import CommitPicker, PickerFile, PickerResult
+from prflow.picker import CommitPicker, FileStatusCategory, PickerFile, PickerResult
 
 # Key sequences (ANSI)
 UP = "\x1b[A"
@@ -22,14 +22,14 @@ CTRL_C = "\x03"
 
 
 def _staged(*paths) -> list[PickerFile]:
-    return [PickerFile(path=p, category="staged") for p in paths]
+    return [PickerFile(path=p, category=FileStatusCategory.Staged) for p in paths]
 
 
 def _mixed() -> list[PickerFile]:
     return [
-        PickerFile(path="a.py", category="staged"),
-        PickerFile(path="b.py", category="unstaged"),
-        PickerFile(path="c.txt", category="untracked"),
+        PickerFile(path="a.py", category=FileStatusCategory.Staged),
+        PickerFile(path="b.py", category=FileStatusCategory.Unstaged),
+        PickerFile(path="c.txt", category=FileStatusCategory.Untracked),
     ]
 
 
@@ -132,20 +132,20 @@ class TestMixedCategories:
         result = run_picker(_mixed(), DOWN + SPACE + RIGHT + ENTER)
         assert result is not None
         assert result.selected_files[0].path == "b.py"
-        assert result.selected_files[0].category == "unstaged"
+        assert result.selected_files[0].category == FileStatusCategory.Unstaged
 
     def test_untracked_file_selectable(self):
         result = run_picker(_mixed(), DOWN + DOWN + SPACE + RIGHT + ENTER)
         assert result is not None
         assert result.selected_files[0].path == "c.txt"
-        assert result.selected_files[0].category == "untracked"
+        assert result.selected_files[0].category == FileStatusCategory.Untracked
 
     def test_mixed_selection_preserves_categories(self):
         result = run_picker(_mixed(), SPACE + DOWN + SPACE + RIGHT + ENTER)
         assert result is not None
         categories = {pf.category for pf in result.selected_files}
-        assert "staged" in categories
-        assert "unstaged" in categories
+        assert FileStatusCategory.Staged in categories
+        assert FileStatusCategory.Unstaged in categories
 
     def test_selected_files_sorted_by_index(self):
         # Select third then first
